@@ -155,6 +155,7 @@
           <h2>第三階段：合成與導出</h2>
           <p class="stage-desc">選擇導出目標：合成新 GIF、生成 Sprite Sheet 精靈圖，或兩者皆做</p>
         </div>
+        <button class="btn btn-secondary" id="btn-home-top">🏠 回首頁</button>
       </div>
 
       <div class="export-grid">
@@ -204,7 +205,7 @@
             <h4>Sprite Sheet 參數</h4>
             <div class="form-group">
               <label class="form-label" for="ss-cols">每行欄數 (Columns)：</label>
-              <input type="number" id="ss-cols" class="form-input" value="5" min="1" max="20">
+              <input type="number" id="ss-cols" class="form-input" value="5" min="1" max="500">
             </div>
             <div class="form-group">
               <label class="form-label" for="ss-padding">圖塊間距 (Padding px)：</label>
@@ -220,6 +221,7 @@
 
           <div class="action-buttons">
             <button class="btn btn-secondary" id="btn-back-to-stage-2">← 返回第二階段</button>
+            <button class="btn btn-secondary" id="btn-reset-home">🏠 回首頁</button>
             <button class="btn btn-success btn-lg" id="btn-generate">🚀 立即合成與導出</button>
           </div>
         </div>

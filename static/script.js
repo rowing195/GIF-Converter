@@ -288,6 +288,11 @@ function gotoStage3() {
   setStepActive(3);
   document.getElementById('stage-2-section').classList.add('hidden');
   document.getElementById('stage-3-section').classList.remove('hidden');
+
+  // Default columns to total frame count (all frames in horizontal line)
+  if (state.rembgFrames && state.rembgFrames.length > 0) {
+    document.getElementById('ss-cols').value = state.rembgFrames.length;
+  }
 }
 
 // --- STAGE 3: Synthesis & Export Controls ---
@@ -297,6 +302,16 @@ function initStage3Controls() {
     document.getElementById('stage-3-section').classList.add('hidden');
     document.getElementById('stage-2-section').classList.remove('hidden');
   });
+
+  const handleReturnHome = () => {
+    location.reload();
+  };
+
+  const btnResetHome = document.getElementById('btn-reset-home');
+  if (btnResetHome) btnResetHome.addEventListener('click', handleReturnHome);
+
+  const btnHomeTop = document.getElementById('btn-home-top');
+  if (btnHomeTop) btnHomeTop.addEventListener('click', handleReturnHome);
 
   document.getElementById('btn-generate').addEventListener('click', async () => {
     const exportType = document.querySelector('input[name="export-type"]:checked').value;

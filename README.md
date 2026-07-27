@@ -1,11 +1,4 @@
-<div id="top">
-
-<!-- HEADER STYLE: CLASSIC -->
-<div align="center">
-
-<img src="readmeai/assets/logos/purple.svg" width="30%" style="position: relative; top: 0; right: 0;" alt="Project Logo"/>
-
-<div id="top">
+<div id="top"></div>
 
 <!-- HEADER STYLE: CLASSIC -->
 <div align="center">
@@ -25,6 +18,7 @@
 <img src="https://img.shields.io/badge/JavaScript-F7DF1E.svg?style=for-the-badge&logo=JavaScript&logoColor=black" alt="JavaScript">
 
 </div>
+
 <br>
 
 ---
@@ -75,16 +69,14 @@
 
 ## 📁 Project Structure
 
-專案完整路徑：
-`C:\Users\Watson\.gemini\antigravity\scratch\gif_converter_agent`
-
 ```sh
 gif_converter_agent/
 ├── app.py                     # FastAPI 後端 API (GIF 拆解, Rembg U2-Net, 合成導出)
 ├── create_sample_gif.py       # 測試用 GIF 生成腳本
 ├── test_agent_api.py          # API 自動化測試腳本
+├── start.bat                  # 一鍵啟動腳本
 ├── sample.gif                 # 範例測試 GIF 檔
-├── README.md                  # 專案說明文件 (Generated via readme-ai)
+├── README.md                  # 專案說明文件
 └── static/
     ├── index.html             # 3 階段嚮導式 Modern Web 介面
     ├── style.css              # 現代暗黑科技風格 CSS (5-Column Grid Layout)
@@ -116,15 +108,16 @@ gif_converter_agent/
 
 ### Usage
 
-1. **啟動 FastAPI 後端服務器：**
+1. **啟動 FastAPI 後端服務器（預設 Port: 8080）：**
 
     ```sh
     python app.py
     ```
+    *或在 Windows 直接雙擊 [start.bat](file:///C:/Users/Watson/.gemini/antigravity/scratch/gif_converter_agent/start.bat) 即可一鍵啟動並開啟頁面。*
 
 2. **開啟瀏覽器存取介面：**
 
-    造訪 [http://127.0.0.1:8000](http://127.0.0.1:8000)
+    造訪 [http://127.0.0.1:8080](http://127.0.0.1:8080)
 
 ### Testing
 
@@ -150,15 +143,10 @@ python test_agent_api.py
 
 This project is open-source and free to use under the MIT License.
 
-
 <div align="right">
 
 [![][back-to-top]](#top)
 
 </div>
 
-
 [back-to-top]: https://img.shields.io/badge/-BACK_TO_TOP-151515?style=flat-square
-
-
----

@@ -1,4 +1,4 @@
-// GIF Converter Agent - Frontend Controller State
+// GIF Converter - Frontend Controller State
 const state = {
   filename: '',
   width: 0,

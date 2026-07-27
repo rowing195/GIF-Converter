@@ -3,9 +3,9 @@
 <!-- HEADER STYLE: CLASSIC -->
 <div align="center">
 
-<h1><code>GIF Converter Agent</code></h1>
+<h1><code>GIF Converter</code></h1>
 
-<em>逐幀拆解 • U2-Net AI 去背 • 智慧 GIF / Sprite Sheet 導出 Agent</em>
+<em>逐幀拆解 • U2-Net AI 去背 • 智慧 GIF / Sprite Sheet 導出工具</em>
 
 <!-- BADGES -->
 <br>
@@ -41,7 +41,7 @@
 
 ## 🌌 Overview
 
-**GIF Converter Agent** 是一個強大且具備現代暗黑視覺介面的 GIF 動畫與圖層處理 Agent 工具。它能幫你將 GIF 做精準的逐幀拆解、展示每幀的延遲時間（ms），並提供 **一排 5 張圖** 的視覺化網格選單（左上角標有影格編號）。
+**GIF Converter** 是一個強大且具備現代暗黑視覺介面的 GIF 動畫與圖層處理工具。它能幫你將 GIF 做精準的逐幀拆解、展示每幀的延遲時間（ms），並提供 **一排 5 張圖** 的視覺化網格選單（左上角標有影格編號）。
 
 使用者可在第一階段自訂剔除或留下的影格，在第二階段選擇是否傳送到 **U2-Net AI 模型** 進行自動去背（生成 Alpha 透明通道 PNG），並在第三階段將成果合成**新 GIF**、導出 **Sprite Sheet 精靈圖** 或**兩者皆做**。
 

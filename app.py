@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from PIL import Image, ImageSequence
 
-app = FastAPI(title="GIF Converter Agent")
+app = FastAPI(title="GIF Converter")
 
 # Global lazy-loaded rembg session
 rembg_session = None

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GIF 轉換 Agent - 逐幀拆解 & U2-Net 去背 & Sprite Sheet 合成器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="logo-area">
+      <div class="logo-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+          <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+          <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+        </svg>
+      </div>
+      <div>
+        <h1>GIF Converter Agent</h1>
+        <p class="subtitle">逐幀拆解 • U2-Net 去背 • 智慧 GIF / Sprite Sheet 導出</p>
+      </div>
+    </div>
+    
+    <!-- Step Indicator -->
+    <div class="step-indicator">
+      <div class="step-item active" id="step-nav-1">
+        <span class="step-num">1</span>
+        <span class="step-label">第一階段：逐幀拆解</span>
+      </div>
+      <div class="step-line"></div>
+      <div class="step-item" id="step-nav-2">
+        <span class="step-num">2</span>
+        <span class="step-label">第二階段：U2-Net 去背</span>
+      </div>
+      <div class="step-line"></div>
+      <div class="step-item" id="step-nav-3">
+        <span class="step-num">3</span>
+        <span class="step-label">第三階段：合成與導出</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+
+    <!-- Upload Section (Shown when no GIF uploaded) -->
+    <section id="upload-section" class="card dropzone-card">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="gif-input" accept="image/gif, image/webp" hidden>
+        <div class="dropzone-icon">
+          <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"/>
+          </svg>
+        </div>
+        <h2>將 GIF 檔案拖曳至此處，或點擊上傳</h2>
+        <p class="dropzone-hint">支援所有標準 .gif 與動態 .webp 格式</p>
+        <button class="btn btn-primary" onclick="document.getElementById('gif-input').click()">
+          選擇 GIF 檔案
+        </button>
+      </div>
+    </section>
+
+    <!-- STAGE 1: Deconstruction & Frame Selection -->
+    <section id="stage-1-section" class="stage-card hidden">
+      <div class="stage-header">
+        <div>
+          <h2>第一階段：逐幀拆解與影格篩選</h2>
+          <p class="stage-desc" id="gif-meta-info">正在載入圖片資訊...</p>
+        </div>
+        <div class="selection-actions">
+          <button class="btn btn-secondary btn-sm" id="btn-select-all">全選</button>
+          <button class="btn btn-secondary btn-sm" id="btn-deselect-all">取消全選</button>
+          <button class="btn btn-secondary btn-sm" id="btn-invert-selection">反向選擇</button>
+          <button class="btn btn-danger btn-sm" id="btn-delete-selected">刪除所選幀</button>
+        </div>
+      </div>
+
+      <div class="toolbar-info">
+        <div class="badge badge-info">
+          <span>保留總幀數：</span><strong id="selected-count-badge">0 / 0</strong>
+        </div>
+        <div class="badge badge-info">
+          <span>估計總時長：</span><strong id="total-duration-badge">0 ms</strong>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn btn-success" id="btn-goto-stage-2">
+          確認篩選並進入第二階段 →
+        </button>
+      </div>
+
+      <!-- 5-Column Grid strictly formatted -->
+      <div class="frames-grid-5cols" id="frames-grid">
+        <!-- Frame cards will be inserted dynamically here -->
+      </div>
+    </section>
+
+    <!-- STAGE 2: U2-Net Background Removal -->
+    <section id="stage-2-section" class="stage-card hidden">
+      <div class="stage-header">
+        <div>
+          <h2>第二階段：U2-Net AI 去背處理</h2>
+          <p class="stage-desc">選擇是否將已篩選的影格傳送至 U2-Net 深度學習模型去除背景</p>
+        </div>
+      </div>
+
+      <div class="choice-panel card">
+        <div class="choice-options">
+          <label class="choice-card active" id="choice-rembg-yes">
+            <input type="radio" name="rembg-choice" value="yes" checked>
+            <div class="choice-icon">✨</div>
+            <div class="choice-body">
+              <h3>進行 U2-Net 去背</h3>
+              <p>使用預訓練 U2-Net 模型，自動辨識主體並精準去除背景（生成 Alpha 透明通道）</p>
+            </div>
+          </label>
+
+          <label class="choice-card" id="choice-rembg-no">
+            <input type="radio" name="rembg-choice" value="no">
+            <div class="choice-icon">⚡</div>
+            <div class="choice-body">
+              <h3>不進行去背（直接跳過）</h3>
+              <p>保留原始背景與圖像數據，直接進入第三階段進行 GIF / Sprite Sheet 導出</p>
+            </div>
+          </label>
+        </div>
+
+        <div id="rembg-progress-area" class="rembg-progress-area hidden">
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="rembg-progress-fill" style="width: 0%;"></div>
+          </div>
+          <div class="progress-status" id="rembg-status-text">準備傳送影格至 U2-Net 模型...</div>
+        </div>
+
+        <div class="stage-footer">
+          <button class="btn btn-secondary" id="btn-back-to-stage-1">← 返回第一階段</button>
+          <button class="btn btn-primary" id="btn-start-stage-2">開始處理 / 進入第三階段 →</button>
+        </div>
+      </div>
+
+      <!-- Preview of Rembg Results -->
+      <div id="rembg-preview-container" class="rembg-preview-container hidden">
+        <h3>去背成果預覽</h3>
+        <div class="frames-grid-5cols" id="rembg-preview-grid"></div>
+      </div>
+    </section>
+
+    <!-- STAGE 3: Synthesis & Export -->
+    <section id="stage-3-section" class="stage-card hidden">
+      <div class="stage-header">
+        <div>
+          <h2>第三階段：合成與導出</h2>
+          <p class="stage-desc">選擇導出目標：合成新 GIF、生成 Sprite Sheet 精靈圖，或兩者皆做</p>
+        </div>
+      </div>
+
+      <div class="export-grid">
+        <!-- Configuration Controls -->
+        <div class="card config-panel">
+          <h3>導出設定</h3>
+
+          <div class="form-group">
+            <label class="form-label">導出模式：</label>
+            <div class="radio-group-vertical">
+              <label class="radio-option">
+                <input type="radio" name="export-type" value="both" checked>
+                <span>兩者皆做 (新 GIF + Sprite Sheet)</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="export-type" value="gif">
+                <span>僅合成新 GIF</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="export-type" value="spritesheet">
+                <span>僅轉成 Sprite Sheet (精靈圖)</span>
+              </label>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <!-- GIF Options -->
+          <div class="options-block" id="gif-options-block">
+            <h4>GIF 動畫參數</h4>
+            <div class="form-group">
+              <label class="form-label" for="gif-fps">覆蓋影格率 FPS (留空為保持原創幀間隔時間)：</label>
+              <input type="number" id="gif-fps" class="form-input" placeholder="例如: 10, 15, 24 (預設為保持原始)" min="1" max="60">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gif-loop">循環次數 (Loop Count)：</label>
+              <select id="gif-loop" class="form-select">
+                <option value="0">無限循環 (0)</option>
+                <option value="1">播放一次 (1)</option>
+                <option value="5">播放 5 次</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Sprite Sheet Options -->
+          <div class="options-block" id="spritesheet-options-block">
+            <h4>Sprite Sheet 參數</h4>
+            <div class="form-group">
+              <label class="form-label" for="ss-cols">每行欄數 (Columns)：</label>
+              <input type="number" id="ss-cols" class="form-input" value="5" min="1" max="20">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="ss-padding">圖塊間距 (Padding px)：</label>
+              <input type="number" id="ss-padding" class="form-input" value="2" min="0" max="50">
+            </div>
+            <div class="form-group">
+              <label class="checkbox-option">
+                <input type="checkbox" id="ss-transparent" checked>
+                <span>保持背景透明 (Transparent PNG)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="action-buttons">
+            <button class="btn btn-secondary" id="btn-back-to-stage-2">← 返回第二階段</button>
+            <button class="btn btn-success btn-lg" id="btn-generate">🚀 立即合成與導出</button>
+          </div>
+        </div>
+
+        <!-- Preview & Output Downloads -->
+        <div class="card result-panel">
+          <h3>產出成果與下載</h3>
+          
+          <div id="synthesis-loading" class="synthesis-loading hidden">
+            <div class="spinner"></div>
+            <p>正在合成圖像數據，請稍候...</p>
+          </div>
+
+          <div id="results-display" class="results-display hidden">
+            
+            <!-- GIF Result -->
+            <div id="result-gif-block" class="result-block">
+              <h4>🎬 新 GIF 動畫</h4>
+              <div class="preview-box">
+                <img id="res-gif-img" src="" alt="Generated GIF">
+              </div>
+              <div class="result-meta" id="res-gif-meta"></div>
+              <a id="download-gif-btn" class="btn btn-primary btn-sm" download="output.gif">
+                ⬇️ 下載新 GIF
+              </a>
+            </div>
+
+            <!-- Sprite Sheet Result -->
+            <div id="result-ss-block" class="result-block">
+              <h4>🖼️ Sprite Sheet 精靈圖</h4>
+              <div class="preview-box checkerboard">
+                <img id="res-ss-img" src="" alt="Generated Sprite Sheet">
+              </div>
+              <div class="result-meta" id="res-ss-meta"></div>
+              <div class="btn-group">
+                <a id="download-ss-btn" class="btn btn-primary btn-sm" download="spritesheet.png">
+                  ⬇️ 下載 Sprite Sheet PNG
+                </a>
+                <button id="download-json-btn" class="btn btn-secondary btn-sm">
+                  📄 下載 JSON Layout
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>

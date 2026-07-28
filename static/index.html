@@ -128,6 +128,46 @@
           </label>
         </div>
 
+        <!-- Advanced Rembg Settings Panel -->
+        <div id="rembg-settings-block" class="rembg-settings-block">
+          <h4>🎛️ U2-Net 去背強度與服裝細節保留設定</h4>
+
+          <div class="rembg-settings-grid">
+            <div class="form-group">
+              <div class="label-with-value">
+                <label class="form-label" for="rembg-cutoff">去背閥值 / 邊緣門檻：</label>
+                <strong id="rembg-cutoff-val" class="badge-value">10</strong>
+              </div>
+              <input type="range" id="rembg-cutoff" min="1" max="100" value="10" class="form-range">
+              <p class="form-hint">💡 <b>若服裝被削掉/消失：請將閥值調低 (如 1 ~ 5)</b>，能保留輕薄衣物與微弱細節；若背景未去乾淨則調高 (如 20~50)。</p>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-option">
+                <input type="checkbox" id="rembg-post-process" checked>
+                <span><b>自動修補內部孔洞 (Post-Process Mask)</b></span>
+              </label>
+              <p class="form-hint">💡 自動填補角色衣服或身體內部被 AI 誤判為背景的穿孔與洞穴。</p>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-option">
+                <input type="checkbox" id="rembg-alpha-matting">
+                <span><b>開啟 Alpha Matting (精細邊緣與服裝邊緣修補)</b></span>
+              </label>
+            </div>
+
+            <div class="form-group hidden" id="alpha-matting-subgroup">
+              <div class="label-with-value">
+                <label class="form-label" for="rembg-fg-threshold">前景自信門檻 (Foreground Threshold)：</label>
+                <strong id="rembg-fg-val" class="badge-value">200</strong>
+              </div>
+              <input type="range" id="rembg-fg-threshold" min="100" max="255" value="200" class="form-range">
+              <p class="form-hint">💡 調低門檻 (如 150~200) 可將模糊區強制判定為前景，有效防止服裝與肢體被削除。</p>
+            </div>
+          </div>
+        </div>
+
         <div id="rembg-progress-area" class="rembg-progress-area hidden">
           <div class="progress-bar-container">
             <div class="progress-bar-fill" id="rembg-progress-fill" style="width: 0%;"></div>

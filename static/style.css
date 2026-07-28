@@ -500,6 +500,56 @@ body {
   line-height: 1.4;
 }
 
+/* Rembg Advanced Settings Block */
+.rembg-settings-block {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.rembg-settings-block h4 {
+  font-size: 0.95rem;
+  color: var(--accent-primary);
+  margin-bottom: 1rem;
+}
+
+.rembg-settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.label-with-value {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.badge-value {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.form-range {
+  width: 100%;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.form-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.35rem;
+  line-height: 1.35;
+}
+
 /* Rembg Progress */
 .rembg-progress-area {
   margin: 1.5rem 0;

@@ -172,6 +172,7 @@ function initStage1Controls() {
     setStepActive(2);
     document.getElementById('stage-1-section').classList.add('hidden');
     document.getElementById('stage-2-section').classList.remove('hidden');
+    resetStage2UI();
   });
 }
 
@@ -179,12 +180,14 @@ function initStage1Controls() {
 function initStage2Controls() {
   const choiceYes = document.getElementById('choice-rembg-yes');
   const choiceNo = document.getElementById('choice-rembg-no');
+  const settingsBlock = document.getElementById('rembg-settings-block');
 
   choiceYes.addEventListener('click', () => {
     choiceYes.classList.add('active');
     choiceNo.classList.remove('active');
     choiceYes.querySelector('input').checked = true;
     state.useRembg = true;
+    if (settingsBlock) settingsBlock.classList.remove('hidden');
   });
 
   choiceNo.addEventListener('click', () => {
@@ -192,7 +195,37 @@ function initStage2Controls() {
     choiceYes.classList.remove('active');
     choiceNo.querySelector('input').checked = true;
     state.useRembg = false;
+    if (settingsBlock) settingsBlock.classList.add('hidden');
   });
+
+  // Range Slider & Checkbox Event Listeners
+  const cutoffInput = document.getElementById('rembg-cutoff');
+  const cutoffVal = document.getElementById('rembg-cutoff-val');
+  if (cutoffInput && cutoffVal) {
+    cutoffInput.addEventListener('input', (e) => {
+      cutoffVal.textContent = e.target.value;
+    });
+  }
+
+  const fgInput = document.getElementById('rembg-fg-threshold');
+  const fgVal = document.getElementById('rembg-fg-val');
+  if (fgInput && fgVal) {
+    fgInput.addEventListener('input', (e) => {
+      fgVal.textContent = e.target.value;
+    });
+  }
+
+  const alphaMattingCheckbox = document.getElementById('rembg-alpha-matting');
+  const alphaMattingSubgroup = document.getElementById('alpha-matting-subgroup');
+  if (alphaMattingCheckbox && alphaMattingSubgroup) {
+    alphaMattingCheckbox.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        alphaMattingSubgroup.classList.remove('hidden');
+      } else {
+        alphaMattingSubgroup.classList.add('hidden');
+      }
+    });
+  }
 
   document.getElementById('btn-back-to-stage-1').addEventListener('click', () => {
     setStepActive(1);
@@ -207,6 +240,12 @@ function initStage2Controls() {
       gotoStage3();
       return;
     }
+
+    // Read configured Rembg parameters
+    const alphaCutoff = parseInt(document.getElementById('rembg-cutoff').value) || 10;
+    const postProcessMask = document.getElementById('rembg-post-process').checked;
+    const alphaMatting = document.getElementById('rembg-alpha-matting').checked;
+    const fgThreshold = parseInt(document.getElementById('rembg-fg-threshold').value) || 200;
 
     // Run U2-Net background removal
     const progressArea = document.getElementById('rembg-progress-area');
@@ -228,7 +267,11 @@ function initStage2Controls() {
             index: f.index,
             duration: f.duration,
             image: f.image
-          }))
+          })),
+          alpha_cutoff: alphaCutoff,
+          post_process_mask: postProcessMask,
+          alpha_matting: alphaMatting,
+          alpha_matting_foreground_threshold: fgThreshold
         })
       });
 
@@ -255,10 +298,22 @@ function initStage2Controls() {
 
     } catch (err) {
       alert(`去背處理失敗：${err.message}`);
-      startBtn.disabled = false;
       progressArea.classList.add('hidden');
+    } finally {
+      startBtn.disabled = false;
     }
   });
+}
+
+function resetStage2UI() {
+  const startBtn = document.getElementById('btn-start-stage-2');
+  if (startBtn) {
+    startBtn.disabled = false;
+  }
+  const progressArea = document.getElementById('rembg-progress-area');
+  if (progressArea) {
+    progressArea.classList.add('hidden');
+  }
 }
 
 function renderRembgPreviews() {
@@ -289,6 +344,9 @@ function gotoStage3() {
   document.getElementById('stage-2-section').classList.add('hidden');
   document.getElementById('stage-3-section').classList.remove('hidden');
 
+  // Ensure Stage 2 UI controls are reset if user navigates back
+  resetStage2UI();
+
   // Default columns to total frame count (all frames in horizontal line)
   if (state.rembgFrames && state.rembgFrames.length > 0) {
     document.getElementById('ss-cols').value = state.rembgFrames.length;
@@ -301,6 +359,7 @@ function initStage3Controls() {
     setStepActive(2);
     document.getElementById('stage-3-section').classList.add('hidden');
     document.getElementById('stage-2-section').classList.remove('hidden');
+    resetStage2UI();
   });
 
   const handleReturnHome = () => {

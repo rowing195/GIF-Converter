@@ -10,19 +10,18 @@ from PIL import Image, ImageSequence
 
 app = FastAPI(title="GIF Converter")
 
-# Global lazy-loaded rembg session
-rembg_session = None
+# Global lazy-loaded rembg sessions dict
+rembg_sessions = {}
 
-def get_rembg_session():
-    global rembg_session
-    if rembg_session is None:
+def get_rembg_session(model_name: str = "u2net"):
+    if model_name not in rembg_sessions:
         try:
             from rembg import new_session
-            rembg_session = new_session("u2net")
+            rembg_sessions[model_name] = new_session(model_name)
         except Exception as e:
-            print(f"Error initializing rembg u2net session: {e}")
+            print(f"Error initializing rembg session '{model_name}': {e}")
             raise e
-    return rembg_session
+    return rembg_sessions[model_name]
 
 
 class FrameItem(BaseModel):
@@ -32,6 +31,11 @@ class FrameItem(BaseModel):
 
 class RembgRequest(BaseModel):
     frames: List[FrameItem]
+    model: str = "u2net"
+    alpha_cutoff: int = 10  # 1-255 threshold
+    post_process_mask: bool = True
+    alpha_matting: bool = False
+    alpha_matting_foreground_threshold: int = 240
 
 class GifOptions(BaseModel):
     fps_override: Optional[float] = None
@@ -109,7 +113,7 @@ async def decompose_gif(file: UploadFile = File(...)):
 async def u2net_rembg(req: RembgRequest):
     try:
         from rembg import remove
-        session = get_rembg_session()
+        session = get_rembg_session(req.model)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"rembg module or u2net model loading failed: {str(e)}")
     
@@ -122,8 +126,22 @@ async def u2net_rembg(req: RembgRequest):
             pil_img.save(img_byte_arr, format='PNG')
             input_bytes = img_byte_arr.getvalue()
             
-            output_bytes = remove(input_bytes, session=session)
+            output_bytes = remove(
+                input_bytes,
+                session=session,
+                post_process_mask=req.post_process_mask,
+                alpha_matting=req.alpha_matting,
+                alpha_matting_foreground_threshold=req.alpha_matting_foreground_threshold
+            )
             output_pil = Image.open(io.BytesIO(output_bytes)).convert("RGBA")
+
+            # Apply custom alpha cutoff threshold if requested
+            if req.alpha_cutoff > 0:
+                import numpy as np
+                r, g, b, a = output_pil.split()
+                a_np = np.array(a)
+                a_np[a_np < req.alpha_cutoff] = 0
+                output_pil.putalpha(Image.fromarray(a_np))
             
             processed_b64 = pil_to_base64(output_pil, format="PNG")
             processed_frames.append({

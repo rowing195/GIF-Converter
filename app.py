@@ -41,6 +41,12 @@ class GifOptions(BaseModel):
     fps_override: Optional[float] = None
     loop: int = 0  # 0 means infinite loop
 
+class WebpOptions(BaseModel):
+    fps_override: Optional[float] = None
+    loop: int = 0  # 0 means infinite loop
+    lossless: bool = True
+    quality: int = 80
+
 class SpriteSheetOptions(BaseModel):
     columns: int = 5
     padding: int = 2
@@ -49,8 +55,10 @@ class SpriteSheetOptions(BaseModel):
 
 class SynthesizeRequest(BaseModel):
     frames: List[FrameItem]
-    export_type: str  # "gif", "spritesheet", "both"
+    export_types: List[str] = []  # e.g. ["gif", "webp", "spritesheet"]
+    export_type: Optional[str] = None  # Legacy support ("gif", "spritesheet", "both")
     gif_options: GifOptions = GifOptions()
+    webp_options: WebpOptions = WebpOptions()
     spritesheet_options: SpriteSheetOptions = SpriteSheetOptions()
 
 
@@ -166,12 +174,24 @@ async def synthesize(req: SynthesizeRequest):
     if not req.frames:
         raise HTTPException(status_code=400, detail="No frames provided for synthesis.")
     
+    export_types = set(req.export_types)
+    if not export_types and req.export_type:
+        if req.export_type == "gif":
+            export_types.add("gif")
+        elif req.export_type == "spritesheet":
+            export_types.add("spritesheet")
+        elif req.export_type == "both":
+            export_types.update(["gif", "spritesheet"])
+
+    if not export_types:
+        raise HTTPException(status_code=400, detail="No export format selected.")
+
     result = {}
     pil_images = [base64_to_pil(f.image) for f in req.frames]
     durations = [f.duration for f in req.frames]
     
     # 1. Generate GIF
-    if req.export_type in ("gif", "both"):
+    if "gif" in export_types:
         buf = io.BytesIO()
         
         # Determine duration array or override
@@ -200,8 +220,37 @@ async def synthesize(req: SynthesizeRequest):
             "total_frames": len(req.frames)
         }
 
-    # 2. Generate Sprite Sheet
-    if req.export_type in ("spritesheet", "both"):
+    # 2. Generate Animated WebP
+    if "webp" in export_types:
+        buf = io.BytesIO()
+        
+        if req.webp_options.fps_override and req.webp_options.fps_override > 0:
+            frame_duration = int(1000 / req.webp_options.fps_override)
+            final_durations = [frame_duration] * len(pil_images)
+        else:
+            final_durations = durations
+            
+        webp_frames = [img for img in pil_images]
+        webp_frames[0].save(
+            buf,
+            format="WEBP",
+            save_all=True,
+            append_images=webp_frames[1:],
+            duration=final_durations,
+            loop=req.webp_options.loop,
+            lossless=req.webp_options.lossless,
+            quality=req.webp_options.quality,
+            method=6
+        )
+        webp_b64 = f"data:image/webp;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
+        result["webp"] = {
+            "data_url": webp_b64,
+            "size_bytes": len(buf.getvalue()),
+            "total_frames": len(req.frames)
+        }
+
+    # 3. Generate Sprite Sheet
+    if "spritesheet" in export_types:
         num_frames = len(pil_images)
         cols = max(1, req.spritesheet_options.columns)
         rows = math.ceil(num_frames / cols)

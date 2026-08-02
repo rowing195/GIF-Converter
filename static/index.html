@@ -204,19 +204,19 @@
           <h3>導出設定</h3>
 
           <div class="form-group">
-            <label class="form-label">導出模式：</label>
-            <div class="radio-group-vertical">
-              <label class="radio-option">
-                <input type="radio" name="export-type" value="both" checked>
-                <span>兩者皆做 (新 GIF + Sprite Sheet)</span>
+            <label class="form-label">導出格式（可複選）：</label>
+            <div class="checkbox-group-vertical">
+              <label class="checkbox-option export-type-card">
+                <input type="checkbox" name="export-type" value="gif" checked>
+                <span>🎬 GIF 動畫 (.gif)</span>
               </label>
-              <label class="radio-option">
-                <input type="radio" name="export-type" value="gif">
-                <span>僅合成新 GIF</span>
+              <label class="checkbox-option export-type-card">
+                <input type="checkbox" name="export-type" value="webp" checked>
+                <span>🌐 WebP 動畫 (.webp)</span>
               </label>
-              <label class="radio-option">
-                <input type="radio" name="export-type" value="spritesheet">
-                <span>僅轉成 Sprite Sheet (精靈圖)</span>
+              <label class="checkbox-option export-type-card">
+                <input type="checkbox" name="export-type" value="spritesheet" checked>
+                <span>🖼️ Sprite Sheet 精靈圖 (.png)</span>
               </label>
             </div>
           </div>
@@ -237,6 +237,29 @@
                 <option value="1">播放一次 (1)</option>
                 <option value="5">播放 5 次</option>
               </select>
+            </div>
+          </div>
+
+          <!-- WebP Options -->
+          <div class="options-block" id="webp-options-block">
+            <h4>WebP 動畫參數</h4>
+            <div class="form-group">
+              <label class="form-label" for="webp-fps">覆蓋影格率 FPS (留空為保持原創幀間隔時間)：</label>
+              <input type="number" id="webp-fps" class="form-input" placeholder="例如: 10, 15, 24 (預設為保持原始)" min="1" max="60">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="webp-loop">循環次數 (Loop Count)：</label>
+              <select id="webp-loop" class="form-select">
+                <option value="0">無限循環 (0)</option>
+                <option value="1">播放一次 (1)</option>
+                <option value="5">播放 5 次</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-option">
+                <input type="checkbox" id="webp-lossless" checked>
+                <span>無損壓縮 (Lossless - 保留精準 Alpha 透明通道)</span>
+              </label>
             </div>
           </div>
 
@@ -286,6 +309,18 @@
               <div class="result-meta" id="res-gif-meta"></div>
               <a id="download-gif-btn" class="btn btn-primary btn-sm" download="output.gif">
                 ⬇️ 下載新 GIF
+              </a>
+            </div>
+
+            <!-- WebP Result -->
+            <div id="result-webp-block" class="result-block">
+              <h4>🌐 WebP 動畫</h4>
+              <div class="preview-box checkerboard">
+                <img id="res-webp-img" src="" alt="Generated WebP">
+              </div>
+              <div class="result-meta" id="res-webp-meta"></div>
+              <a id="download-webp-btn" class="btn btn-primary btn-sm" download="output.webp">
+                ⬇️ 下載 WebP 動畫
               </a>
             </div>
 

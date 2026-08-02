@@ -624,7 +624,7 @@ body {
   border-color: var(--accent-primary);
 }
 
-.radio-group-vertical {
+.radio-group-vertical, .checkbox-group-vertical {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
@@ -635,6 +635,26 @@ body {
   align-items: center;
   gap: 0.65rem;
   font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.export-type-card {
+  padding: 0.75rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.export-type-card:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.export-type-card input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
   cursor: pointer;
 }
 

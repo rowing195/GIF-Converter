@@ -372,10 +372,35 @@ function initStage3Controls() {
   const btnHomeTop = document.getElementById('btn-home-top');
   if (btnHomeTop) btnHomeTop.addEventListener('click', handleReturnHome);
 
+  const updateExportOptionsVisibility = () => {
+    const selectedTypes = Array.from(document.querySelectorAll('input[name="export-type"]:checked')).map(el => el.value);
+    const gifBlock = document.getElementById('gif-options-block');
+    const webpBlock = document.getElementById('webp-options-block');
+    const ssBlock = document.getElementById('spritesheet-options-block');
+
+    if (gifBlock) gifBlock.classList.toggle('hidden', !selectedTypes.includes('gif'));
+    if (webpBlock) webpBlock.classList.toggle('hidden', !selectedTypes.includes('webp'));
+    if (ssBlock) ssBlock.classList.toggle('hidden', !selectedTypes.includes('spritesheet'));
+  };
+
+  document.querySelectorAll('input[name="export-type"]').forEach(cb => {
+    cb.addEventListener('change', updateExportOptionsVisibility);
+  });
+  updateExportOptionsVisibility();
+
   document.getElementById('btn-generate').addEventListener('click', async () => {
-    const exportType = document.querySelector('input[name="export-type"]:checked').value;
-    const fpsOverride = parseFloat(document.getElementById('gif-fps').value) || null;
-    const loop = parseInt(document.getElementById('gif-loop').value) || 0;
+    const exportTypes = Array.from(document.querySelectorAll('input[name="export-type"]:checked')).map(el => el.value);
+    if (exportTypes.length === 0) {
+      alert('請至少選擇一種導出格式！');
+      return;
+    }
+
+    const gifFpsOverride = parseFloat(document.getElementById('gif-fps').value) || null;
+    const gifLoop = parseInt(document.getElementById('gif-loop').value) || 0;
+
+    const webpFpsOverride = parseFloat(document.getElementById('webp-fps').value) || null;
+    const webpLoop = parseInt(document.getElementById('webp-loop').value) || 0;
+    const webpLossless = document.getElementById('webp-lossless').checked;
 
     const ssCols = parseInt(document.getElementById('ss-cols').value) || 5;
     const ssPadding = parseInt(document.getElementById('ss-padding').value) || 2;
@@ -383,10 +408,15 @@ function initStage3Controls() {
 
     const payload = {
       frames: state.rembgFrames,
-      export_type: exportType,
+      export_types: exportTypes,
       gif_options: {
-        fps_override: fpsOverride,
-        loop: loop
+        fps_override: gifFpsOverride,
+        loop: gifLoop
+      },
+      webp_options: {
+        fps_override: webpFpsOverride,
+        loop: webpLoop,
+        lossless: webpLossless
       },
       spritesheet_options: {
         columns: ssCols,
@@ -418,7 +448,7 @@ function initStage3Controls() {
       const data = await res.json();
       state.synthesisResult = data;
 
-      renderSynthesisResults(data, exportType);
+      renderSynthesisResults(data);
     } catch (err) {
       alert(`合成失敗：${err.message}`);
     } finally {
@@ -428,14 +458,18 @@ function initStage3Controls() {
   });
 }
 
-function renderSynthesisResults(data, exportType) {
+function renderSynthesisResults(data) {
   const resultsDisplay = document.getElementById('results-display');
   const gifBlock = document.getElementById('result-gif-block');
+  const webpBlock = document.getElementById('result-webp-block');
   const ssBlock = document.getElementById('result-ss-block');
 
   resultsDisplay.classList.remove('hidden');
 
-  if (data.gif && (exportType === 'gif' || exportType === 'both')) {
+  const baseName = state.filename ? state.filename.replace(/\.[^/.]+$/, "") : "output";
+
+  // 1. GIF Result
+  if (data.gif) {
     gifBlock.classList.remove('hidden');
     document.getElementById('res-gif-img').src = data.gif.data_url;
     document.getElementById('res-gif-meta').textContent = 
@@ -443,12 +477,27 @@ function renderSynthesisResults(data, exportType) {
 
     const downloadBtn = document.getElementById('download-gif-btn');
     downloadBtn.href = data.gif.data_url;
-    downloadBtn.download = `${state.filename.replace(/\.[^/.]+$/, "")}_new.gif`;
+    downloadBtn.download = `${baseName}_new.gif`;
   } else {
     gifBlock.classList.add('hidden');
   }
 
-  if (data.spritesheet && (exportType === 'spritesheet' || exportType === 'both')) {
+  // 2. WebP Result
+  if (data.webp) {
+    webpBlock.classList.remove('hidden');
+    document.getElementById('res-webp-img').src = data.webp.data_url;
+    document.getElementById('res-webp-meta').textContent = 
+      `總幀數: ${data.webp.total_frames} | 檔案大小: ${(data.webp.size_bytes / 1024).toFixed(1)} KB`;
+
+    const downloadWebpBtn = document.getElementById('download-webp-btn');
+    downloadWebpBtn.href = data.webp.data_url;
+    downloadWebpBtn.download = `${baseName}_animated.webp`;
+  } else {
+    webpBlock.classList.add('hidden');
+  }
+
+  // 3. Sprite Sheet Result
+  if (data.spritesheet) {
     ssBlock.classList.remove('hidden');
     document.getElementById('res-ss-img').src = data.spritesheet.data_url;
     document.getElementById('res-ss-meta').textContent = 
@@ -456,7 +505,7 @@ function renderSynthesisResults(data, exportType) {
 
     const downloadSsBtn = document.getElementById('download-ss-btn');
     downloadSsBtn.href = data.spritesheet.data_url;
-    downloadSsBtn.download = `${state.filename.replace(/\.[^/.]+$/, "")}_spritesheet.png`;
+    downloadSsBtn.download = `${baseName}_spritesheet.png`;
 
     const downloadJsonBtn = document.getElementById('download-json-btn');
     downloadJsonBtn.onclick = () => {
@@ -465,7 +514,7 @@ function renderSynthesisResults(data, exportType) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${state.filename.replace(/\.[^/.]+$/, "")}_spritesheet.json`;
+      a.download = `${baseName}_spritesheet.json`;
       a.click();
       URL.revokeObjectURL(url);
     };

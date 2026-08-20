@@ -50,16 +50,16 @@
     <!-- Upload Section (Shown when no GIF uploaded) -->
     <section id="upload-section" class="card dropzone-card">
       <div class="dropzone" id="dropzone">
-        <input type="file" id="gif-input" accept="image/gif, image/webp" hidden>
+        <input type="file" id="gif-input" accept="image/gif, image/webp, image/png, image/jpeg, image/bmp" hidden>
         <div class="dropzone-icon">
           <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"/>
           </svg>
         </div>
-        <h2>將 GIF 檔案拖曳至此處，或點擊上傳</h2>
-        <p class="dropzone-hint">支援所有標準 .gif 與動態 .webp 格式</p>
+        <h2>將檔案拖曳至此處，或點擊上傳</h2>
+        <p class="dropzone-hint">動圖 .gif / 動態 .webp：逐幀拆解 → 去背 → 導出｜靜態圖 .png / .jpg / .bmp：直接去背並下載透明 PNG</p>
         <button class="btn btn-primary" onclick="document.getElementById('gif-input').click()">
-          選擇 GIF 檔案
+          選擇檔案
         </button>
       </div>
     </section>
@@ -191,6 +191,7 @@
         <div class="stage-footer">
           <button class="btn btn-secondary" id="btn-back-to-stage-1">← 返回第一階段</button>
           <div class="spacer"></div>
+          <button class="btn btn-secondary hidden" id="btn-home-stage-2">🏠 回首頁</button>
           <button class="btn btn-secondary hidden" id="btn-reprocess-rembg">🔄 重新執行 AI 去背</button>
           <button class="btn btn-primary" id="btn-start-stage-2">開始處理 / 進入第三階段 →</button>
         </div>

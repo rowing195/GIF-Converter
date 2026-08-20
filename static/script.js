@@ -6,6 +6,7 @@ const state = {
   rawFrames: [],       // Decomposed original frames: [{index, duration, image}]
   selectedFrames: [],  // Filtered frames kept for Stage 2 & 3
   rembgFrames: [],     // Transparent frames output from U2-Net
+  isStatic: false,     // Still image upload: finishes at Stage 2, no Stage 3
   useRembg: true,
   synthesisResult: null
 };
@@ -47,8 +48,8 @@ function initDropzone() {
 }
 
 async function handleGifUpload(file) {
-  if (!file.name.match(/\.(gif|webp)$/i)) {
-    alert('請上傳有效的 .gif 或動態 .webp 檔案！');
+  if (!file.name.match(/\.(gif|webp|png|jpe?g|bmp)$/i)) {
+    alert('請上傳有效的 .gif / 動態 .webp，或 .png / .jpg / .bmp 靜態圖片！');
     return;
   }
 
@@ -59,8 +60,8 @@ async function handleGifUpload(file) {
   const dropzone = document.getElementById('dropzone');
   dropzone.innerHTML = `
     <div class="spinner"></div>
-    <h2>正在拆解 GIF 影格中...</h2>
-    <p class="dropzone-hint">正在解析每幀圖像與間隙時間 (ms)</p>
+    <h2>正在解析圖片中...</h2>
+    <p class="dropzone-hint">正在讀取影格圖像與間隙時間 (ms)</p>
   `;
 
   try {
@@ -79,6 +80,8 @@ async function handleGifUpload(file) {
     state.width = data.width;
     state.height = data.height;
     state.rawFrames = data.frames.map(f => ({ ...f, selected: true }));
+    state.isStatic = !data.is_animated;
+    if (state.isStatic) applyStaticImageMode();
 
     // Switch to Stage 1
     document.getElementById('upload-section').classList.add('hidden');
@@ -89,6 +92,29 @@ async function handleGifUpload(file) {
     alert(`錯誤：${err.message}`);
     location.reload();
   }
+}
+
+// --- Still Image Mode: pipeline finishes at Stage 2 ---
+function applyStaticImageMode() {
+  const step3 = document.getElementById('step-nav-3');
+  step3.classList.add('hidden');
+  step3.previousElementSibling.classList.add('hidden');
+
+  // "Skip background removal" only existed as a shortcut into Stage 3
+  document.getElementById('choice-rembg-no').classList.add('hidden');
+  state.useRembg = true;
+
+  document.getElementById('btn-home-stage-2').classList.remove('hidden');
+}
+
+function downloadFrameAsPng(frame) {
+  const baseName = state.filename ? state.filename.replace(/\.[^/.]+$/, "") : "frame";
+  const a = document.createElement('a');
+  a.href = frame.image;
+  a.download = state.isStatic
+    ? `${baseName}_rembg.png`
+    : `${baseName}_frame_${String(frame.index).padStart(2, '0')}.png`;
+  a.click();
 }
 
 // --- STAGE 1: Render & Selection Logic ---
@@ -227,6 +253,10 @@ function initStage2Controls() {
     });
   }
 
+  document.getElementById('btn-home-stage-2').addEventListener('click', () => {
+    location.reload();
+  });
+
   document.getElementById('btn-back-to-stage-1').addEventListener('click', () => {
     setStepActive(1);
     document.getElementById('stage-2-section').classList.add('hidden');
@@ -235,6 +265,15 @@ function initStage2Controls() {
 
   // 🚀 Main action button (Start AI / Direct Proceed)
   document.getElementById('btn-start-stage-2').addEventListener('click', async () => {
+    if (state.isStatic) {
+      if (state.rembgFrames.length > 0) {
+        downloadFrameAsPng(state.rembgFrames[0]);
+      } else {
+        await runRembgProcess();
+      }
+      return;
+    }
+
     if (!state.useRembg) {
       // Direct pass to stage 3 without rembg
       state.rembgFrames = [...state.selectedFrames];
@@ -315,14 +354,18 @@ async function runRembgProcess() {
     state.rembgFrames = data.frames;
 
     progressFill.style.width = '100%';
-    statusText.textContent = '✅ 所有影格去背完成！';
+    statusText.textContent = state.isStatic
+      ? '✅ 去背完成！可於下方預覽、微調並下載透明 PNG。若邊緣不理想，可換一個模型再次執行。'
+      : '✅ 所有影格去背完成！';
 
     // Render U2-Net previews & update button labels
     renderRembgPreviews();
 
-    setTimeout(() => {
-      gotoStage3();
-    }, 800);
+    if (!state.isStatic) {
+      setTimeout(() => {
+        gotoStage3();
+      }, 800);
+    }
 
   } catch (err) {
     alert(`去背處理失敗：${err.message}`);
@@ -335,6 +378,14 @@ async function runRembgProcess() {
 function updateStage2FooterButtons() {
   const startBtn = document.getElementById('btn-start-stage-2');
   const reprocessBtn = document.getElementById('btn-reprocess-rembg');
+
+  if (state.isStatic) {
+    const done = state.rembgFrames.length > 0;
+    reprocessBtn.classList.toggle('hidden', !done);
+    startBtn.textContent = done ? '⬇️ 下載透明 PNG' : '✨ 開始 AI 去背';
+    startBtn.className = done ? 'btn btn-success' : 'btn btn-primary';
+    return;
+  }
 
   if (state.rembgFrames && state.rembgFrames.length > 0) {
     if (reprocessBtn) reprocessBtn.classList.remove('hidden');
@@ -397,11 +448,7 @@ function renderRembgPreviews() {
     const exportBtn = card.querySelector('.btn-export-frame');
     exportBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const a = document.createElement('a');
-      a.href = f.image;
-      const cleanFilename = state.filename ? state.filename.replace(/\.[^/.]+$/, "") : "frame";
-      a.download = `${cleanFilename}_frame_${String(f.index).padStart(2, '0')}.png`;
-      a.click();
+      downloadFrameAsPng(f);
     });
 
     // ⬆️ Import / Replace single frame PNG handler

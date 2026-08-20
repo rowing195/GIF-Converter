@@ -78,8 +78,8 @@ def pil_to_base64(img: Image.Image, format: str = "PNG") -> str:
 
 @app.post("/api/decompose-gif")
 async def decompose_gif(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(('.gif', '.webp')):
-        raise HTTPException(status_code=400, detail="Only GIF (or WebP animated) files are supported.")
+    if not file.filename.lower().endswith(('.gif', '.webp', '.png', '.jpg', '.jpeg', '.bmp')):
+        raise HTTPException(status_code=400, detail="Only GIF / animated WebP or PNG / JPG / BMP still images are supported.")
     
     contents = await file.read()
     try:
@@ -87,6 +87,7 @@ async def decompose_gif(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to open image: {str(e)}")
     
+    is_animated = getattr(gif_img, "is_animated", False)
     frames = []
     index = 0
     
@@ -110,6 +111,7 @@ async def decompose_gif(file: UploadFile = File(...)):
         
     return {
         "filename": file.filename,
+        "is_animated": is_animated,
         "total_frames": len(frames),
         "width": gif_img.width,
         "height": gif_img.height,

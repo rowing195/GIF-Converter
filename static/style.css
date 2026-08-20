@@ -451,6 +451,45 @@ body {
   font-family: var(--font-mono);
 }
 
+/* Single Frame Action Bar & Edited Badge */
+.frame-card-actions {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.4rem;
+  background: rgba(14, 17, 24, 0.95);
+  border-top: 1px solid var(--border-color);
+}
+
+.frame-card-actions .btn {
+  flex: 1;
+  padding: 0.3rem 0.2rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.btn-import-label {
+  margin: 0;
+  display: inline-flex;
+}
+
+.frame-card.frame-edited {
+  border-color: #10b981 !important;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.4) !important;
+}
+
+.frame-badge-edited {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(16, 185, 129, 0.9);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  z-index: 10;
+}
+
 /* Stage 2 Choice Cards */
 .choice-options {
   display: grid;

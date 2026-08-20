@@ -233,76 +233,123 @@ function initStage2Controls() {
     document.getElementById('stage-1-section').classList.remove('hidden');
   });
 
+  // 🚀 Main action button (Start AI / Direct Proceed)
   document.getElementById('btn-start-stage-2').addEventListener('click', async () => {
     if (!state.useRembg) {
-      // Direct pass to stage 3
+      // Direct pass to stage 3 without rembg
       state.rembgFrames = [...state.selectedFrames];
       gotoStage3();
       return;
     }
 
-    // Read configured Rembg parameters
-    const alphaCutoff = parseInt(document.getElementById('rembg-cutoff').value) || 10;
-    const postProcessMask = document.getElementById('rembg-post-process').checked;
-    const alphaMatting = document.getElementById('rembg-alpha-matting').checked;
-    const fgThreshold = parseInt(document.getElementById('rembg-fg-threshold').value) || 200;
-
-    // Run U2-Net background removal
-    const progressArea = document.getElementById('rembg-progress-area');
-    const statusText = document.getElementById('rembg-status-text');
-    const progressFill = document.getElementById('rembg-progress-fill');
-    const startBtn = document.getElementById('btn-start-stage-2');
-
-    progressArea.classList.remove('hidden');
-    startBtn.disabled = true;
-    progressFill.style.width = '30%';
-    statusText.textContent = `正在將 ${state.selectedFrames.length} 幀圖像傳送至 U2-Net 進行 AI 去背...`;
-
-    try {
-      const res = await fetch('/api/u2net-rembg', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          frames: state.selectedFrames.map(f => ({
-            index: f.index,
-            duration: f.duration,
-            image: f.image
-          })),
-          alpha_cutoff: alphaCutoff,
-          post_process_mask: postProcessMask,
-          alpha_matting: alphaMatting,
-          alpha_matting_foreground_threshold: fgThreshold
-        })
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'U2-Net 去背處理失敗');
-      }
-
-      progressFill.style.width = '90%';
-      statusText.textContent = '去背完成，正在優化圖層...';
-
-      const data = await res.json();
-      state.rembgFrames = data.frames;
-
-      progressFill.style.width = '100%';
-      statusText.textContent = '✅ 所有影格去背完成！';
-
-      // Render U2-Net previews
-      renderRembgPreviews();
-
-      setTimeout(() => {
-        gotoStage3();
-      }, 800);
-
-    } catch (err) {
-      alert(`去背處理失敗：${err.message}`);
-      progressArea.classList.add('hidden');
-    } finally {
-      startBtn.disabled = false;
+    // If AI background removal has already run or frames exist, proceed directly to Stage 3 (preserving manual edits!)
+    if (state.rembgFrames && state.rembgFrames.length > 0) {
+      gotoStage3();
+      return;
     }
+
+    // Otherwise run AI background removal for the first time
+    await runRembgProcess();
   });
+
+  // 🔄 Reprocess button (explicitly re-run AI background removal)
+  const reprocessBtn = document.getElementById('btn-reprocess-rembg');
+  if (reprocessBtn) {
+    reprocessBtn.addEventListener('click', async () => {
+      const hasEdits = state.rembgFrames && state.rembgFrames.some(f => f.edited);
+      if (hasEdits) {
+        const confirmClear = confirm('⚠️ 您手動微調過的部分影格將被重新 AI 去背覆蓋，確定要重新執行嗎？');
+        if (!confirmClear) return;
+      }
+      await runRembgProcess();
+    });
+  }
+}
+
+async function runRembgProcess() {
+  // Read configured Rembg parameters
+  const selectedModel = document.getElementById('rembg-model').value || 'u2net';
+  const alphaCutoff = parseInt(document.getElementById('rembg-cutoff').value) || 10;
+  const postProcessMask = document.getElementById('rembg-post-process').checked;
+  const alphaMatting = document.getElementById('rembg-alpha-matting').checked;
+  const fgThreshold = parseInt(document.getElementById('rembg-fg-threshold').value) || 200;
+
+  // Run U2-Net background removal
+  const progressArea = document.getElementById('rembg-progress-area');
+  const statusText = document.getElementById('rembg-status-text');
+  const progressFill = document.getElementById('rembg-progress-fill');
+  const startBtn = document.getElementById('btn-start-stage-2');
+
+  progressArea.classList.remove('hidden');
+  if (startBtn) startBtn.disabled = true;
+  progressFill.style.width = '30%';
+  statusText.textContent = `正在使用 AI 模型 (${selectedModel}) 處理 ${state.selectedFrames.length} 幀圖像...`;
+
+  try {
+    const res = await fetch('/api/u2net-rembg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        frames: state.selectedFrames.map(f => ({
+          index: f.index,
+          duration: f.duration,
+          image: f.image
+        })),
+        model: selectedModel,
+        alpha_cutoff: alphaCutoff,
+        post_process_mask: postProcessMask,
+        alpha_matting: alphaMatting,
+        alpha_matting_foreground_threshold: fgThreshold
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'U2-Net 去背處理失敗');
+    }
+
+    progressFill.style.width = '90%';
+    statusText.textContent = '去背完成，正在優化圖層...';
+
+    const data = await res.json();
+    state.rembgFrames = data.frames;
+
+    progressFill.style.width = '100%';
+    statusText.textContent = '✅ 所有影格去背完成！';
+
+    // Render U2-Net previews & update button labels
+    renderRembgPreviews();
+
+    setTimeout(() => {
+      gotoStage3();
+    }, 800);
+
+  } catch (err) {
+    alert(`去背處理失敗：${err.message}`);
+    progressArea.classList.add('hidden');
+  } finally {
+    if (startBtn) startBtn.disabled = false;
+  }
+}
+
+function updateStage2FooterButtons() {
+  const startBtn = document.getElementById('btn-start-stage-2');
+  const reprocessBtn = document.getElementById('btn-reprocess-rembg');
+
+  if (state.rembgFrames && state.rembgFrames.length > 0) {
+    if (reprocessBtn) reprocessBtn.classList.remove('hidden');
+    if (startBtn) {
+      const hasEdits = state.rembgFrames.some(f => f.edited);
+      startBtn.textContent = hasEdits ? '🚀 套用微調成果並進入第三階段 →' : '🚀 直接進入第三階段 →';
+      startBtn.className = 'btn btn-success';
+    }
+  } else {
+    if (reprocessBtn) reprocessBtn.classList.add('hidden');
+    if (startBtn) {
+      startBtn.textContent = '✨ 開始處理 / 進入第三階段 →';
+      startBtn.className = 'btn btn-primary';
+    }
+  }
 }
 
 function resetStage2UI() {
@@ -314,6 +361,7 @@ function resetStage2UI() {
   if (progressArea) {
     progressArea.classList.add('hidden');
   }
+  updateStage2FooterButtons();
 }
 
 function renderRembgPreviews() {
@@ -322,21 +370,76 @@ function renderRembgPreviews() {
   container.classList.remove('hidden');
   grid.innerHTML = '';
 
-  state.rembgFrames.forEach(f => {
+  state.rembgFrames.forEach((f, idx) => {
     const card = document.createElement('div');
-    card.className = 'frame-card selected';
+    card.className = `frame-card selected ${f.edited ? 'frame-edited' : ''}`;
     card.innerHTML = `
       <div class="frame-badge-topleft">#${f.index}</div>
+      ${f.edited ? '<div class="frame-badge-edited">✨ 已微調</div>' : ''}
       <div class="frame-thumb-box">
         <img src="${f.image}" alt="Rembg frame ${f.index}">
       </div>
       <div class="frame-footer">
-        <span>已去背</span>
+        <span>${f.edited ? '已微調' : '已去背'}</span>
         <strong>${f.duration} ms</strong>
       </div>
+      <div class="frame-card-actions">
+        <button class="btn btn-sm btn-secondary btn-export-frame" title="導出此影格圖檔 (PNG) 至電腦微調">⬇️ 導出</button>
+        <label class="btn btn-sm btn-primary btn-import-label" title="上傳微調後的 PNG 替換此影格">
+          ⬆️ 替換
+          <input type="file" accept="image/png, image/webp" class="btn-import-file" style="display:none;">
+        </label>
+        ${f.edited ? '<button class="btn btn-sm btn-danger btn-reset-frame" title="重置為原始 AI 去背成果">↺ 復原</button>' : ''}
+      </div>
     `;
+
+    // ⬇️ Export single frame PNG handler
+    const exportBtn = card.querySelector('.btn-export-frame');
+    exportBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const a = document.createElement('a');
+      a.href = f.image;
+      const cleanFilename = state.filename ? state.filename.replace(/\.[^/.]+$/, "") : "frame";
+      a.download = `${cleanFilename}_frame_${String(f.index).padStart(2, '0')}.png`;
+      a.click();
+    });
+
+    // ⬆️ Import / Replace single frame PNG handler
+    const fileInput = card.querySelector('.btn-import-file');
+    fileInput.addEventListener('change', (e) => {
+      e.stopPropagation();
+      if (e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          if (!f.originalImage) {
+            f.originalImage = f.image;
+          }
+          f.image = evt.target.result;
+          f.edited = true;
+          renderRembgPreviews();
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // ↺ Reset single frame handler
+    const resetBtn = card.querySelector('.btn-reset-frame');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (f.originalImage) {
+          f.image = f.originalImage;
+          f.edited = false;
+          renderRembgPreviews();
+        }
+      });
+    }
+
     grid.appendChild(card);
   });
+
+  updateStage2FooterButtons();
 }
 
 function gotoStage3() {

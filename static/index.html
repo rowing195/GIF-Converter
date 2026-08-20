@@ -47,20 +47,48 @@
 
   <main class="main-container">
 
-    <!-- Upload Section (Shown when no GIF uploaded) -->
-    <section id="upload-section" class="card dropzone-card">
-      <div class="dropzone" id="dropzone">
+    <!-- Upload Section (Shown when no file uploaded) -->
+    <section id="upload-section" class="upload-hero">
+      <div class="hero-inner" id="hero-inner">
         <input type="file" id="gif-input" accept="image/gif, image/webp, image/png, image/jpeg, image/bmp" hidden>
-        <div class="dropzone-icon">
-          <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+
+        <div class="hero-badge">🔒 全程本機運算，圖片不會離開這台電腦</div>
+
+        <h2 class="hero-title">上傳圖片，AI 自動去背</h2>
+        <p class="hero-sub">動圖逐幀拆解處理，靜態圖單張去背並輸出透明 PNG</p>
+
+        <button class="btn btn-primary btn-xl" id="btn-choose-file">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"/>
           </svg>
-        </div>
-        <h2>將檔案拖曳至此處，或點擊上傳</h2>
-        <p class="dropzone-hint">動圖 .gif / 動態 .webp：逐幀拆解 → 去背 → 導出｜靜態圖 .png / .jpg / .bmp：直接去背並下載透明 PNG</p>
-        <button class="btn btn-primary" onclick="document.getElementById('gif-input').click()">
           選擇檔案
         </button>
+        <p class="hero-drop-hint">或將檔案直接拖曳到這個畫面</p>
+
+        <div class="hero-notes">
+          <div class="hero-note">
+            <div class="hero-note-icon">🎬</div>
+            <h3>動圖 .gif / .webp</h3>
+            <p>逐幀拆解 → 篩選影格 → AI 去背 → 導出 GIF、WebP 或 Sprite Sheet</p>
+          </div>
+          <div class="hero-note">
+            <div class="hero-note-icon">🖼️</div>
+            <h3>靜態圖 .png / .jpg / .bmp</h3>
+            <p>單張直接 AI 去背，完成後即可下載透明背景 PNG</p>
+          </div>
+          <div class="hero-note">
+            <div class="hero-note-icon">🎛️</div>
+            <h3>六種去背模型</h3>
+            <p>可依題材切換模型，並手動微調閥值與邊緣細節</p>
+          </div>
+        </div>
+
+        <ul class="hero-tips">
+          <li>首次選用某個 AI 模型時會自動下載權重檔，該次需要連網</li>
+          <li>影格數量越多、圖片尺寸越大，去背耗時越長</li>
+          <li>二次元角色建議改用 <b>IS-Net Anime</b> 模型，可避免服裝被挖空</li>
+          <li>去背結果可逐幀導出微調後再傳回，或換模型重跑</li>
+        </ul>
       </div>
     </section>
 
@@ -368,6 +396,19 @@
     </section>
 
   </main>
+
+  <!-- Drop target, only visible while a file is being dragged over the page -->
+  <div id="drop-overlay" class="drop-overlay">
+    <div class="drop-overlay-box">
+      <div class="drop-overlay-icon">
+        <svg width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"/>
+        </svg>
+      </div>
+      <h2>放開即可上傳</h2>
+      <p>支援 .gif · .webp · .png · .jpg · .bmp</p>
+    </div>
+  </div>
 
   <script src="/static/script.js"></script>
 </body>

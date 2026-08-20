@@ -20,24 +20,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- Upload & Dropzone Handling ---
 function initDropzone() {
-  const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('gif-input');
+  const overlay = document.getElementById('drop-overlay');
 
-  dropzone.addEventListener('dragover', (e) => {
+  // dragenter/dragleave also fire for child elements, so count them to know when
+  // the pointer has really left the page
+  let dragDepth = 0;
+
+  const draggingFile = (e) =>
+    e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+
+  // Only accept drops on the upload screen, so a stray drop mid-workflow
+  // cannot wipe out frames the user has already processed
+  const onUploadScreen = () =>
+    !document.getElementById('upload-section').classList.contains('hidden');
+
+  const hideOverlay = () => {
+    dragDepth = 0;
+    overlay.classList.remove('visible');
+  };
+
+  document.addEventListener('dragenter', (e) => {
+    if (!draggingFile(e) || !onUploadScreen()) return;
     e.preventDefault();
-    dropzone.classList.add('dragover');
+    dragDepth++;
+    overlay.classList.add('visible');
   });
 
-  dropzone.addEventListener('dragleave', () => {
-    dropzone.classList.remove('dragover');
+  document.addEventListener('dragover', (e) => {
+    if (draggingFile(e) && onUploadScreen()) e.preventDefault();
   });
 
-  dropzone.addEventListener('drop', (e) => {
+  document.addEventListener('dragleave', (e) => {
+    if (!draggingFile(e)) return;
+    dragDepth--;
+    if (dragDepth <= 0) hideOverlay();
+  });
+
+  document.addEventListener('drop', (e) => {
+    if (!draggingFile(e)) return;
     e.preventDefault();
-    dropzone.classList.remove('dragover');
-    if (e.dataTransfer.files.length > 0) {
+    hideOverlay();
+    if (onUploadScreen() && e.dataTransfer.files.length > 0) {
       handleGifUpload(e.dataTransfer.files[0]);
     }
+  });
+
+  document.getElementById('btn-choose-file').addEventListener('click', () => {
+    fileInput.click();
   });
 
   fileInput.addEventListener('change', (e) => {
@@ -56,12 +86,11 @@ async function handleGifUpload(file) {
   const formData = new FormData();
   formData.append('file', file);
 
-  // Show loading UI on dropzone
-  const dropzone = document.getElementById('dropzone');
-  dropzone.innerHTML = `
+  // Show loading UI in place of the hero content
+  document.getElementById('hero-inner').innerHTML = `
     <div class="spinner"></div>
-    <h2>正在解析圖片中...</h2>
-    <p class="dropzone-hint">正在讀取影格圖像與間隙時間 (ms)</p>
+    <h2 class="hero-title">正在解析圖片中...</h2>
+    <p class="hero-sub">正在讀取影格圖像與間隙時間 (ms)</p>
   `;
 
   try {

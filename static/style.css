@@ -157,47 +157,154 @@ body {
   box-shadow: var(--shadow-main);
 }
 
-/* Dropzone Card */
-.dropzone-card {
-  text-align: center;
-  padding: 4rem 2rem;
-}
-
-.dropzone {
-  border: 2px dashed rgba(99, 102, 241, 0.4);
-  border-radius: var(--radius-lg);
-  padding: 3.5rem 2rem;
-  background: rgba(99, 102, 241, 0.03);
-  transition: all 0.3s ease;
-  cursor: pointer;
-}
-
-.dropzone:hover, .dropzone.dragover {
-  border-color: var(--accent-primary);
-  background: rgba(99, 102, 241, 0.08);
-}
-
-.dropzone-icon {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: rgba(99, 102, 241, 0.15);
-  color: var(--accent-primary);
+/* Upload Hero */
+.upload-hero {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 1.5rem;
+  min-height: calc(100vh - 260px);
+  padding: 2rem 0;
 }
 
-.dropzone h2 {
-  font-size: 1.4rem;
+.hero-inner {
+  width: 100%;
+  max-width: 920px;
+  text-align: center;
+}
+
+.hero-badge {
+  display: inline-block;
+  padding: 0.4rem 1rem;
+  margin-bottom: 1.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.hero-title {
+  font-size: clamp(1.9rem, 4vw, 2.9rem);
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 0.75rem;
+}
+
+.hero-sub {
+  color: var(--text-muted);
+  font-size: 1.05rem;
+  margin-bottom: 2.25rem;
+}
+
+.hero-drop-hint {
+  margin-top: 1rem;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.hero-notes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 1rem;
+  margin-top: 3rem;
+  text-align: left;
+}
+
+.hero-note {
+  padding: 1.35rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+}
+
+.hero-note-icon {
+  font-size: 1.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.hero-note h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+}
+
+.hero-note p {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.hero-tips {
+  margin: 2rem auto 0;
+  padding: 1.25rem 1.5rem 1.25rem 2.75rem;
+  max-width: 720px;
+  text-align: left;
+  list-style: disc;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.hero-tips li + li {
+  margin-top: 0.5rem;
+}
+
+.hero-tips b {
+  color: var(--text-muted);
+}
+
+/* Drop overlay: only shown while dragging a file over the page */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 1.75rem;
+  background: rgba(10, 12, 16, 0.86);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.drop-overlay.visible {
+  display: flex;
+}
+
+.drop-overlay-box {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border: 3px dashed var(--accent-primary);
+  border-radius: var(--radius-lg);
+  background: rgba(99, 102, 241, 0.08);
+  animation: dropPulse 1.4s ease-in-out infinite;
+}
+
+.drop-overlay-icon {
+  color: var(--accent-primary);
   margin-bottom: 0.5rem;
 }
 
-.dropzone-hint {
+.drop-overlay-box h2 {
+  font-size: 1.6rem;
+}
+
+.drop-overlay-box p {
   color: var(--text-muted);
   font-size: 0.9rem;
-  margin-bottom: 1.5rem;
+}
+
+@keyframes dropPulse {
+  0%, 100% { background: rgba(99, 102, 241, 0.06); }
+  50%      { background: rgba(99, 102, 241, 0.14); }
 }
 
 /* Buttons */
@@ -266,6 +373,11 @@ body {
 .btn-lg {
   padding: 1rem 2rem;
   font-size: 1rem;
+}
+
+.btn-xl {
+  padding: 1.15rem 2.75rem;
+  font-size: 1.1rem;
 }
 
 /* Stage Card Header */

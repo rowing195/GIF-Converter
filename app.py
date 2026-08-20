@@ -1,4 +1,6 @@
 import io
+import os
+import sys
 import math
 import base64
 from typing import List, Optional
@@ -7,6 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from PIL import Image, ImageSequence
+
+# When frozen by PyInstaller the bundled files live under sys._MEIPASS, not the CWD
+BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = FastAPI(title="GIF Converter")
 
@@ -300,11 +306,11 @@ async def synthesize(req: SynthesizeRequest):
     return result
 
 # Serve static files for frontend UI
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")
 async def serve_index():
-    return FileResponse("static/index.html")
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 if __name__ == "__main__":
     import uvicorn

@@ -132,15 +132,13 @@ function applyStaticImageMode() {
   // "Skip background removal" only existed as a shortcut into Stage 3
   document.getElementById('choice-rembg-no').classList.add('hidden');
   state.useRembg = true;
-
-  document.getElementById('btn-home-stage-2').classList.remove('hidden');
 }
 
 function downloadFrameAsPng(frame) {
   const baseName = state.filename ? state.filename.replace(/\.[^/.]+$/, "") : "frame";
   const a = document.createElement('a');
   a.href = frame.image;
-  a.download = state.isStatic
+  a.download = state.isStatic && frame.removedBg
     ? `${baseName}_rembg.png`
     : `${baseName}_frame_${String(frame.index).padStart(2, '0')}.png`;
   a.click();
@@ -193,6 +191,10 @@ function renderStage1Stats() {
 }
 
 function initStage1Controls() {
+  document.getElementById('btn-home-stage-1').addEventListener('click', () => {
+    location.reload();
+  });
+
   document.getElementById('btn-select-all').addEventListener('click', () => {
     state.rawFrames.forEach(f => f.selected = true);
     renderStage1();
@@ -221,6 +223,16 @@ function initStage1Controls() {
       alert('請至少選擇保留 1 幀影格才能進入第二階段！');
       return;
     }
+
+    // Results from an earlier Stage 2 run belong to the previous selection
+    const selectionKey = frames => frames.map(f => f.index).join(',');
+    if (state.rembgFrames.length > 0 && selectionKey(state.rembgFrames) !== selectionKey(selected)) {
+      const hasEdits = state.rembgFrames.some(f => f.edited);
+      if (hasEdits && !confirm('⚠️ 影格選擇已變更，先前的去背結果與手動微調將被清除，確定要繼續嗎？')) {
+        return;
+      }
+      state.rembgFrames = [];
+    }
     state.selectedFrames = selected;
 
     // Switch step indicator & view
@@ -228,6 +240,7 @@ function initStage1Controls() {
     document.getElementById('stage-1-section').classList.add('hidden');
     document.getElementById('stage-2-section').classList.remove('hidden');
     resetStage2UI();
+    renderStage2Previews();
   });
 }
 
@@ -380,7 +393,7 @@ async function runRembgProcess() {
     statusText.textContent = '去背完成，正在優化圖層...';
 
     const data = await res.json();
-    state.rembgFrames = data.frames;
+    state.rembgFrames = data.frames.map(f => ({ ...f, removedBg: true }));
 
     progressFill.style.width = '100%';
     statusText.textContent = state.isStatic
@@ -388,7 +401,7 @@ async function runRembgProcess() {
       : '✅ 所有影格去背完成！';
 
     // Render U2-Net previews & update button labels
-    renderRembgPreviews();
+    renderStage2Previews();
 
     if (!state.isStatic) {
       setTimeout(() => {
@@ -444,13 +457,24 @@ function resetStage2UI() {
   updateStage2FooterButtons();
 }
 
-function renderRembgPreviews() {
+function renderStage2Previews() {
   const container = document.getElementById('rembg-preview-container');
   const grid = document.getElementById('rembg-preview-grid');
   container.classList.remove('hidden');
   grid.innerHTML = '';
 
-  state.rembgFrames.forEach((f, idx) => {
+  // Before background removal runs, show the selected original frames so a single
+  // frame can already be exported (e.g. from a GIF that is transparent already)
+  const hasRembgResult = state.rembgFrames.some(f => f.removedBg);
+  const frames = state.rembgFrames.length > 0 ? state.rembgFrames : state.selectedFrames;
+
+  document.getElementById('stage2-preview-title').textContent =
+    hasRembgResult ? '去背成果預覽與單幀手動微調' : '逐幀預覽';
+  document.getElementById('stage2-preview-desc').textContent = hasRembgResult
+    ? '💡 若發現某影格去背不完美，可點擊該幀的「⬇️ 導出」於繪圖軟體微調後，再點擊「⬆️ 替換」傳回修正圖！'
+    : '💡 可直接點擊「⬇️ 導出」將任一影格存成 PNG；執行 AI 去背後，這裡會換成去背成果並可逐幀微調。';
+
+  frames.forEach((f, idx) => {
     const card = document.createElement('div');
     card.className = `frame-card selected ${f.edited ? 'frame-edited' : ''}`;
     card.innerHTML = `
@@ -460,15 +484,15 @@ function renderRembgPreviews() {
         <img src="${f.image}" alt="Rembg frame ${f.index}">
       </div>
       <div class="frame-footer">
-        <span>${f.edited ? '已微調' : '已去背'}</span>
+        <span>${f.edited ? '已微調' : (f.removedBg ? '已去背' : '原始影格')}</span>
         <strong>${f.duration} ms</strong>
       </div>
       <div class="frame-card-actions">
         <button class="btn btn-sm btn-secondary btn-export-frame" title="導出此影格圖檔 (PNG) 至電腦微調">⬇️ 導出</button>
-        <label class="btn btn-sm btn-primary btn-import-label" title="上傳微調後的 PNG 替換此影格">
+        ${f.removedBg ? `<label class="btn btn-sm btn-primary btn-import-label" title="上傳微調後的 PNG 替換此影格">
           ⬆️ 替換
           <input type="file" accept="image/png, image/webp" class="btn-import-file" style="display:none;">
-        </label>
+        </label>` : ''}
         ${f.edited ? '<button class="btn btn-sm btn-danger btn-reset-frame" title="重置為原始 AI 去背成果">↺ 復原</button>' : ''}
       </div>
     `;
@@ -482,7 +506,7 @@ function renderRembgPreviews() {
 
     // ⬆️ Import / Replace single frame PNG handler
     const fileInput = card.querySelector('.btn-import-file');
-    fileInput.addEventListener('change', (e) => {
+    if (fileInput) fileInput.addEventListener('change', (e) => {
       e.stopPropagation();
       if (e.target.files && e.target.files[0]) {
         const file = e.target.files[0];
@@ -493,7 +517,7 @@ function renderRembgPreviews() {
           }
           f.image = evt.target.result;
           f.edited = true;
-          renderRembgPreviews();
+          renderStage2Previews();
         };
         reader.readAsDataURL(file);
       }
@@ -507,7 +531,7 @@ function renderRembgPreviews() {
         if (f.originalImage) {
           f.image = f.originalImage;
           f.edited = false;
-          renderRembgPreviews();
+          renderStage2Previews();
         }
       });
     }

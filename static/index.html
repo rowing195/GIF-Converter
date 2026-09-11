@@ -115,6 +115,7 @@
           <span>估計總時長：</span><strong id="total-duration-badge">0 ms</strong>
         </div>
         <div class="spacer"></div>
+        <button class="btn btn-secondary" id="btn-home-stage-1">🏠 回首頁</button>
         <button class="btn btn-success" id="btn-goto-stage-2">
           確認篩選並進入第二階段 →
         </button>
@@ -219,18 +220,18 @@
         <div class="stage-footer">
           <button class="btn btn-secondary" id="btn-back-to-stage-1">← 返回第一階段</button>
           <div class="spacer"></div>
-          <button class="btn btn-secondary hidden" id="btn-home-stage-2">🏠 回首頁</button>
+          <button class="btn btn-secondary" id="btn-home-stage-2">🏠 回首頁</button>
           <button class="btn btn-secondary hidden" id="btn-reprocess-rembg">🔄 重新執行 AI 去背</button>
           <button class="btn btn-primary" id="btn-start-stage-2">開始處理 / 進入第三階段 →</button>
         </div>
       </div>
 
-      <!-- Preview of Rembg Results & Single Frame Touch-up -->
+      <!-- Per-frame preview: original frames first, background-removed results after rembg -->
       <div id="rembg-preview-container" class="rembg-preview-container hidden">
         <div class="stage-header">
           <div>
-            <h3>去背成果預覽與單幀手動微調</h3>
-            <p class="stage-desc">💡 若發現某影格去背不完美，可點擊該幀的「⬇️ 導出」於繪圖軟體微調後，再點擊「⬆️ 替換」傳回修正圖！</p>
+            <h3 id="stage2-preview-title">逐幀預覽</h3>
+            <p class="stage-desc" id="stage2-preview-desc"></p>
           </div>
         </div>
         <div class="frames-grid-5cols" id="rembg-preview-grid"></div>

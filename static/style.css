@@ -61,6 +61,9 @@ button { cursor: pointer; }
   height: 100vh;
   min-width: 1024px;
   display: grid;
+  /* Without an explicit column the grid is sized to its widest content, so a long
+     timeline would stretch the stage and push the inspector off screen */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--topbar-h) minmax(0, 1fr) var(--timeline-h);
 }
 
@@ -168,6 +171,7 @@ button { cursor: pointer; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--inspector-w);
   min-height: 0;
+  min-width: 0;
 }
 
 .stage {
@@ -535,6 +539,7 @@ input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   background: var(--chrome);
   border-top: 1px solid var(--line);
 }
@@ -574,7 +579,7 @@ input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
 .timeline-zoom { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .timeline-zoom input { width: 96px; }
 
-.timeline-scroll { flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; display: flex; }
+.timeline-scroll { flex: 1; min-height: 0; min-width: 0; overflow-x: auto; overflow-y: hidden; display: flex; }
 
 .timeline-empty {
   flex: 1;

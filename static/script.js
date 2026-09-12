@@ -1,738 +1,1060 @@
-// GIF Converter - Frontend Controller State
-const state = {
-  filename: '',
-  width: 0,
-  height: 0,
-  rawFrames: [],       // Decomposed original frames: [{index, duration, image}]
-  selectedFrames: [],  // Filtered frames kept for Stage 2 & 3
-  rembgFrames: [],     // Transparent frames output from U2-Net
-  isStatic: false,     // Still image upload: finishes at Stage 2, no Stage 3
-  useRembg: true,
-  synthesisResult: null
+// GIF Converter - single-page workspace (split / remove / export modes)
+
+const SUPPORTED_EXT = /\.(gif|webp|png|jpe?g|bmp)$/i;
+
+const MODEL_HINTS = {
+  'u2net': '通用模型，已內建可離線使用。衣服容易被挖空時，可改用 IS-Net Anime 或 Human Seg。',
+  'isnet-anime': '二次元與動漫角色專用，較不會把服裝挖空。第一次使用需要連網下載。',
+  'u2net_human_seg': '真人人像與肢體服裝專用。第一次使用需要連網下載。',
+  'u2netp': '輕量模型，邊緣較柔和、不易挖空，但細節較少。第一次使用需要連網下載。',
+  'silueta': '抓取整體主體外框。第一次使用需要連網下載。',
+  'isnet-general-use': '高精細分割，適合物件與商品。第一次使用需要連網下載。'
 };
 
+const ICONS = {
+  upload: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"/><polyline points="7 9 12 4 17 9"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>',
+  fileX: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><polyline points="14 3 14 8 19 8"/><line x1="10" y1="12" x2="14" y2="16"/><line x1="14" y1="12" x2="10" y2="16"/></svg>',
+  drop: '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><polyline points="7 10 12 15 17 10"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>',
+  ban: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg>',
+  check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  checkSmall: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  spin: '<svg class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>',
+  spinLarge: '<svg class="spin-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>',
+  alert: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  arrow: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
+  sparkle: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></svg>',
+  download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><polyline points="7 10 12 15 17 10"/><path d="M5 20h14"/></svg>'
+};
+
+const state = {
+  file: null,         // { name, baseName, width, height, isStatic }
+  frames: [],         // see loadDecomposed()
+  current: 0,         // position in state.frames
+  mode: 'upload',     // upload | split | remove | export
+  view: 'removed',    // remove mode: which image the stage shows
+  zoom: 'fit',
+  timelineScale: 0.64, // px per ms on the timeline
+  uploading: false,
+  removal: { running: false, done: 0, total: 0, processingPos: -1, model: '', error: null },
+  playing: false,
+  playTimer: null,
+  exportPos: 0,
+  ssColsTouched: false,
+  exporting: false,
+  exportResult: null  // { ok, message }
+};
+
+const $ = (id) => document.getElementById(id);
+
 document.addEventListener('DOMContentLoaded', () => {
-  initDropzone();
-  initStage1Controls();
-  initStage2Controls();
-  initStage3Controls();
+  initUpload();
+  initDragAndDrop();
+  initModeSwitch();
+  initStageControls();
+  initSplitPanel();
+  initRemovePanel();
+  initExportPanel();
+  initTimeline();
+  initKeyboard();
+  window.addEventListener('resize', () => renderStage());
+  renderAll();
 });
 
-// --- Upload & Dropzone Handling ---
-function initDropzone() {
-  const fileInput = document.getElementById('gif-input');
-  const overlay = document.getElementById('drop-overlay');
+// ---------- Helpers ----------
 
-  // dragenter/dragleave also fire for child elements, so count them to know when
-  // the pointer has really left the page
-  let dragDepth = 0;
+const keptFrames = () => state.frames.filter(f => f.keep);
+const currentFrame = () => state.frames[state.current];
+const pad2 = (n) => String(n).padStart(2, '0');
+const frameLabel = (f) => `#${pad2(f.index)}`;
+const outputImage = (f) => f.removed || f.image;
+const totalDuration = (frames) => frames.reduce((sum, f) => sum + f.duration, 0);
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  const draggingFile = (e) =>
-    e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+function formatTimecode(ms) {
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.floor(ms / 1000) % 60;
+  return `${pad2(minutes)}:${pad2(seconds)}.${String(ms % 1000).padStart(3, '0')}`;
+}
 
-  // Only accept drops on the upload screen, so a stray drop mid-workflow
-  // cannot wipe out frames the user has already processed
-  const onUploadScreen = () =>
-    !document.getElementById('upload-section').classList.contains('hidden');
+const formatSeconds = (ms) => `${(ms / 1000).toFixed(2)} s`;
 
-  const hideOverlay = () => {
-    dragDepth = 0;
-    overlay.classList.remove('visible');
+function modelLabel(model) {
+  const option = $('rembg-model').querySelector(`option[value="${model}"]`);
+  return option ? option.textContent.split(' · ')[0] : model;
+}
+
+function downloadDataUrl(href, filename) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  a.click();
+}
+
+async function postJson(url, body) {
+  try {
+    return await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    throw new Error('連不上 GIF Converter，請確認程式視窗還開著，再試一次。');
+  }
+}
+
+async function errorDetail(res, fallback) {
+  try {
+    const data = await res.json();
+    return data.detail || fallback;
+  } catch {
+    return `${fallback}（HTTP ${res.status}）`;
+  }
+}
+
+function setChips(container, chips) {
+  container.replaceChildren(...chips.map(({ text, mono, tone }) => {
+    const el = document.createElement('div');
+    el.className = `chip${mono ? ' chip-mono' : ''}${tone ? ` chip-${tone}` : ''}`;
+    el.textContent = text;
+    return el;
+  }));
+}
+
+// ---------- Rendering ----------
+
+function renderAll() {
+  renderShell();
+  renderStage();
+  renderInspector();
+  updateTimeline();
+}
+
+function renderShell() {
+  const app = $('app');
+  const { file, mode, removal } = state;
+  app.classList.toggle('has-file', !!file);
+  app.classList.toggle('is-static', !!file && file.isStatic);
+  ['upload', 'split', 'remove', 'export'].forEach(m => app.classList.toggle(`mode-${m}`, mode === m));
+
+  $('file-name').textContent = file ? file.name : '尚未載入檔案';
+  $('file-meta').textContent = file
+    ? (file.isStatic
+      ? `${file.width}×${file.height} · 靜態圖片`
+      : `${file.width}×${file.height} · ${state.frames.length} 幀 · ${formatSeconds(totalDuration(state.frames))}`)
+    : '';
+
+  $('mode-switch').querySelectorAll('button').forEach(btn => {
+    const m = btn.dataset.mode;
+    btn.classList.toggle('is-active', mode === m);
+    btn.hidden = !!file && file.isStatic && m !== 'remove';
+    btn.disabled = !file || (removal.running && m !== 'remove') || (m === 'export' && keptFrames().length === 0);
+  });
+
+  const home = $('btn-home');
+  home.hidden = !file;
+  home.disabled = removal.running;
+  home.classList.toggle('is-disabled', removal.running);
+}
+
+function renderStage() {
+  const { mode } = state;
+  $('upload-card').hidden = mode !== 'upload';
+  $('viewer').hidden = !(mode === 'split' || mode === 'remove');
+  $('export-preview').hidden = mode !== 'export';
+
+  if (mode === 'split' || mode === 'remove') renderViewer();
+  if (mode === 'export') renderExportPreview();
+}
+
+function renderViewer() {
+  const frame = currentFrame();
+  if (!frame) return;
+  const { mode, removal, file } = state;
+  const showRemoved = mode === 'remove' && state.view === 'removed' && !!frame.removed && !frame.waiting;
+
+  const img = $('frame-img');
+  const src = showRemoved ? frame.removed : frame.image;
+  if (img.getAttribute('src') !== src) img.src = src;
+
+  // Size the frame box for the chosen zoom (the progress card reserves room at the bottom)
+  $('viewer').classList.toggle('is-processing', mode === 'remove' && removal.running);
+  const scroll = $('viewer-scroll');
+  let scale;
+  if (state.zoom === 'fit') {
+    const pad = getComputedStyle(scroll);
+    const availW = Math.max(scroll.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight), 64);
+    const availH = Math.max(scroll.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom), 64);
+    scale = Math.min(availW / frame.width, availH / frame.height);
+  } else {
+    scale = Number(state.zoom);
+  }
+  img.style.width = `${Math.max(1, Math.round(frame.width * scale))}px`;
+  img.style.height = `${Math.max(1, Math.round(frame.height * scale))}px`;
+  $('frame-box').classList.toggle('is-pixelated', scale >= 2);
+
+  $('zoom-control').querySelectorAll('button').forEach(btn => {
+    btn.classList.toggle('is-active', btn.dataset.zoom === String(state.zoom));
+  });
+
+  // Status chips
+  const chips = file.isStatic ? [] : [
+    { text: frameLabel(frame), mono: true, tone: 'accent' },
+    { text: `${frame.duration} ms`, mono: true }
+  ];
+  let status;
+  if (!frame.keep) status = mode === 'remove' ? '已略過，不會去背' : '已略過';
+  else if (mode === 'split') status = '原始影格';
+  else if (removal.running && state.frames.indexOf(frame) === removal.processingPos) status = '去背中…';
+  else if (showRemoved) status = frame.edited ? '已手動微調' : `已去背 · ${modelLabel(frame.removedModel)}`;
+  else status = frame.removed ? '原始影格' : '原始影格 · 尚未去背';
+  chips.push({ text: status, tone: 'muted' });
+  setChips($('stage-chips'), chips);
+
+  // Original / removed toggle
+  const toggle = $('view-toggle');
+  toggle.hidden = mode !== 'remove';
+  toggle.querySelectorAll('button').forEach(btn => {
+    const isRemovedBtn = btn.dataset.view === 'removed';
+    btn.disabled = isRemovedBtn && (!frame.removed || frame.waiting);
+    btn.classList.toggle('is-active', isRemovedBtn ? showRemoved : !showRemoved);
+  });
+
+  // Removal progress
+  $('progress-card').hidden = !(mode === 'remove' && removal.running);
+  if (removal.running) {
+    const processing = state.frames[removal.processingPos];
+    $('progress-count').innerHTML = `<span class="accent">${removal.done}</span> / ${removal.total}`;
+    $('progress-sub').textContent = processing
+      ? `目前處理 ${file.isStatic ? '' : frameLabel(processing) + ' · '}${modelLabel(removal.model)}`
+      : modelLabel(removal.model);
+    $('progress-fill').style.width = `${(removal.done / removal.total) * 100}%`;
+  }
+}
+
+function renderExportPreview() {
+  renderExportAnimation();
+  renderSheetPreview();
+}
+
+function renderExportAnimation() {
+  const kept = keptFrames();
+  if (!kept.length) return;
+
+  // Animated preview (fits a 340px box)
+  const frame = kept[state.exportPos % kept.length];
+  const animImg = $('export-anim');
+  const src = outputImage(frame);
+  if (animImg.getAttribute('src') !== src) animImg.src = src;
+  const scale = Math.min(340 / frame.width, 340 / frame.height);
+  animImg.style.width = `${Math.round(frame.width * scale)}px`;
+  animImg.style.height = `${Math.round(frame.height * scale)}px`;
+  $('export-anim-box').classList.toggle('is-pixelated', scale >= 2);
+
+  setChips($('export-chips'), [
+    { text: '預覽' },
+    { text: `${kept.length} 幀 · ${formatSeconds(totalDuration(kept))}`, mono: true }
+  ]);
+}
+
+// Sprite sheet layout, mirroring the backend's size formula
+function renderSheetPreview() {
+  const kept = keptFrames();
+  if (!kept.length) return;
+  const wantsSheet = selectedExportTypes().includes('spritesheet');
+  $('sheet-preview').hidden = !wantsSheet;
+  if (!wantsSheet) return;
+
+  const cols = Math.max(1, parseInt($('ss-cols').value) || 1);
+  const padding = Math.max(0, parseInt($('ss-padding').value) || 0);
+  const rows = Math.ceil(kept.length / cols);
+  const { width: fw, height: fh } = kept[0];
+  const sheetW = cols * fw + (cols + 1) * padding;
+  const sheetH = rows * fh + (rows + 1) * padding;
+  $('sheet-size').textContent = `${cols} 欄 × ${rows} 列 · ${sheetW.toLocaleString()} × ${sheetH.toLocaleString()} px`;
+
+  const stageW = $('export-preview').clientWidth - 64;
+  const cell = Math.max(8, Math.floor(Math.min(56, (Math.min(stageW, 960) - 4) / cols - 2, 220 / rows - 2)));
+  const cellH = Math.max(8, Math.round(cell * fh / fw));
+  const grid = $('sheet-grid');
+  grid.style.gridTemplateColumns = `repeat(${cols}, ${cell}px)`;
+  grid.style.gridAutoRows = `${cellH}px`;
+  grid.replaceChildren(...kept.map(f => {
+    const im = document.createElement('img');
+    im.src = outputImage(f);
+    im.alt = '';
+    return im;
+  }));
+}
+
+function renderInspector() {
+  const panelMode = state.mode;
+  document.querySelectorAll('.panel').forEach(p => { p.hidden = p.dataset.panel !== panelMode; });
+  if (panelMode === 'split') renderSplitPanel();
+  if (panelMode === 'remove') renderRemovePanel();
+  if (panelMode === 'export') renderExportPanel();
+}
+
+function renderSplitPanel() {
+  const frame = currentFrame();
+  const kept = keptFrames();
+  $('split-frame-no').textContent = frameLabel(frame);
+  $('split-frame-pos').textContent = `第 ${state.current + 1} / ${state.frames.length} 幀`;
+  $('split-duration').textContent = `${frame.duration} ms`;
+  $('split-start').textContent = formatTimecode(frame.start);
+  $('split-size').textContent = `${frame.width} × ${frame.height}`;
+  $('split-keep').checked = frame.keep;
+  $('split-summary').innerHTML = `保留 <span class="mono accent">${kept.length}</span> / ${state.frames.length} 幀 · 共 <span class="mono">${formatSeconds(totalDuration(kept))}</span>`;
+  $('split-export-label').textContent = `導出 ${frameLabel(frame)} 為 PNG`;
+
+  const next = $('btn-goto-remove');
+  next.disabled = kept.length === 0;
+  next.innerHTML = kept.length === 0 ? '請先保留至少 1 幀' : `下一步：去背 ${ICONS.arrow}`;
+}
+
+// Decide what the Remove panel's buttons do for the current situation
+function removePlan() {
+  const { removal, file } = state;
+  if (removal.running) {
+    return { primary: { html: `${ICONS.spin} 去背中 ${removal.done} / ${removal.total}`, disabled: true } };
+  }
+  if (file.isStatic) {
+    const frame = state.frames[0];
+    return frame.removed
+      ? { primary: { html: `${ICONS.download} 下載透明 PNG`, action: () => downloadDataUrl(frame.removed, `${file.baseName}_rembg.png`) },
+          secondary: () => runRemoval([frame]) }
+      : { primary: { html: `${ICONS.sparkle} 開始去背`, action: () => runRemoval([frame]) } };
+  }
+  const kept = keptFrames();
+  const missing = kept.filter(f => !f.removed);
+  if (kept.length === 0) return { primary: { html: '請先保留至少 1 幀', disabled: true } };
+  if (missing.length === kept.length) {
+    return { primary: { html: `${ICONS.sparkle} 開始去背（${kept.length} 幀）`, action: () => runRemoval(missing) } };
+  }
+  if (missing.length > 0) {
+    return {
+      primary: { html: `${ICONS.sparkle} 去背剩下的 ${missing.length} 幀`, action: () => runRemoval(missing) },
+      secondary: () => runRemoval(kept)
+    };
+  }
+  return {
+    primary: { html: `下一步：導出 ${ICONS.arrow}`, action: () => setMode('export') },
+    secondary: () => runRemoval(kept)
   };
+}
+
+let removePrimaryAction = null;
+let removeSecondaryAction = null;
+
+function renderRemovePanel() {
+  const { removal, file } = state;
+  const frame = currentFrame();
+  const kept = file.isStatic ? state.frames : keptFrames();
+  const processed = kept.filter(f => f.removed);
+  const editedCount = kept.filter(f => f.edited).length;
+
+  // Status row
+  const status = $('remove-status');
+  status.className = 'status-row';
+  status.hidden = false;
+  if (removal.running) {
+    status.classList.add('is-running');
+    status.innerHTML = `${ICONS.spin}<span>去背中，已完成 ${removal.done} / ${removal.total} ${file.isStatic ? '' : '幀'}</span>`;
+  } else if (removal.error) {
+    status.classList.add('is-error');
+    status.innerHTML = `${ICONS.alert}<span>去背中斷</span><span class="status-detail"></span>`;
+    status.querySelector('.status-detail').textContent = `${removal.error}${processed.length ? `（已完成的 ${processed.length} 幀會保留）` : ''}`;
+  } else if (processed.length && processed.length === kept.length) {
+    status.classList.add('is-success');
+    status.innerHTML = `${ICONS.check}<span>${file.isStatic ? '去背完成' : `已完成 ${processed.length} 幀去背`}</span>`;
+    if (editedCount) status.insertAdjacentHTML('beforeend', `<span class="status-extra">${file.isStatic ? '已手動微調' : `${editedCount} 幀已微調`}</span>`);
+  } else if (processed.length) {
+    status.innerHTML = `<span class="muted">已完成 ${processed.length} / ${kept.length} 幀去背</span>`;
+  } else {
+    status.hidden = true;
+  }
+
+  $('remove-settings').disabled = removal.running;
+  $('processing-note').hidden = !removal.running;
+  $('model-hint').textContent = MODEL_HINTS[$('rembg-model').value] || '';
+
+  // Touch-up for the current frame
+  const canTouchUp = !removal.running && !!frame.removed && !frame.waiting;
+  $('touchup-section').hidden = !canTouchUp;
+  if (canTouchUp) {
+    $('touchup-label').textContent = file.isStatic ? '手動修正' : `目前這一幀 · ${frameLabel(frame)}`;
+    $('btn-touchup-export').hidden = file.isStatic;
+    $('touchup-buttons').style.gridTemplateColumns = file.isStatic ? 'repeat(2, minmax(0, 1fr))' : '';
+    $('btn-touchup-restore').disabled = !frame.edited;
+  }
+
+  const plan = removePlan();
+  const primary = $('btn-remove-primary');
+  primary.innerHTML = plan.primary.html;
+  primary.disabled = !!plan.primary.disabled;
+  removePrimaryAction = plan.primary.action || null;
+  $('btn-remove-secondary').hidden = !plan.secondary;
+  removeSecondaryAction = plan.secondary || null;
+}
+
+function selectedExportTypes() {
+  return [...document.querySelectorAll('input[name="export-type"]:checked')].map(el => el.value);
+}
+
+function renderExportPanel() {
+  const types = selectedExportTypes();
+  document.querySelectorAll('.format-options').forEach(el => {
+    el.classList.toggle('is-off', !types.includes(el.dataset.optionsFor));
+  });
+
+  const kept = keptFrames();
+  const processed = kept.filter(f => f.removed).length;
+  const mixed = $('export-mixed-note');
+  mixed.hidden = !(processed > 0 && processed < kept.length);
+  if (!mixed.hidden) mixed.textContent = `有 ${kept.length - processed} 幀還沒去背，導出時會使用原圖。`;
+
+  const fileCount = types.length + (types.includes('spritesheet') ? 1 : 0);
+  const btn = $('btn-export');
+  btn.disabled = state.exporting || types.length === 0 || kept.length === 0;
+  $('export-label').textContent = state.exporting
+    ? '正在產生檔案…'
+    : (types.length === 0 ? '請至少選擇一種格式' : `導出 ${types.length} 種格式`);
+
+  const note = $('export-note');
+  note.className = 'footer-note';
+  if (state.exportResult) {
+    note.textContent = state.exportResult.message;
+    note.classList.add(state.exportResult.ok ? 'is-success' : 'is-error');
+  } else {
+    note.textContent = types.length ? `共 ${fileCount} 個檔案，存到瀏覽器的下載資料夾` : '';
+  }
+}
+
+// ---------- Timeline ----------
+
+function buildTimeline() {
+  const ruler = $('ruler');
+  const strip = $('strip');
+  ruler.replaceChildren();
+  strip.replaceChildren();
+
+  state.frames.forEach((frame, pos) => {
+    const width = Math.max(64, Math.round(frame.duration * state.timelineScale));
+
+    const seg = document.createElement('div');
+    seg.className = 'ruler-seg';
+    seg.style.width = `${width}px`;
+    seg.textContent = (frame.start / 1000).toFixed(2);
+    ruler.appendChild(seg);
+
+    const el = document.createElement('div');
+    el.className = 'tl-frame';
+    el.style.width = `${width}px`;
+    el.dataset.pos = pos;
+    el.innerHTML = `
+      <div class="tl-thumb">
+        <div class="tl-img checker"><img alt=""></div>
+        <div class="tl-hold"></div>
+        <button type="button" class="tl-keep" aria-label="切換保留">${ICONS.checkSmall}</button>
+      </div>
+      <div class="tl-label">${pad2(frame.index)}</div>`;
+    frame.el = el;
+    strip.appendChild(el);
+  });
+}
+
+function updateTimeline() {
+  const hasFrames = state.frames.length > 0 && !(state.file && state.file.isStatic);
+  $('timeline-empty').hidden = hasFrames;
+  $('timeline-track').hidden = !hasFrames;
+  $('btn-play').disabled = !hasFrames;
+  $('btn-play').classList.toggle('is-playing', state.playing);
+  $('timeline-zoom').disabled = !hasFrames;
+
+  if (!hasFrames) {
+    $('timecode').innerHTML = '00:00.000 <span class="dim">/ 00:00.000</span>';
+    $('keep-count').textContent = '';
+    $('legend-edited').hidden = true;
+    return;
+  }
+
+  const { mode, removal } = state;
+  const kept = keptFrames();
+  state.frames.forEach((frame, pos) => {
+    const el = frame.el;
+    const processing = removal.running && pos === removal.processingPos;
+    el.classList.toggle('is-current', pos === state.current);
+    el.classList.toggle('is-skipped', !frame.keep);
+    el.classList.toggle('is-edited', frame.edited && mode !== 'split');
+    el.classList.toggle('is-waiting', frame.waiting && !processing);
+
+    const img = el.querySelector('img');
+    const src = mode === 'split' || frame.waiting || !frame.keep ? frame.image : outputImage(frame);
+    if (img.getAttribute('src') !== src) img.src = src;
+
+    const imgBox = el.querySelector('.tl-img');
+    let busy = imgBox.querySelector('.tl-busy');
+    if (processing && !busy) imgBox.insertAdjacentHTML('beforeend', `<div class="tl-busy">${ICONS.spinLarge}</div>`);
+    if (!processing && busy) busy.remove();
+
+    let dot = imgBox.querySelector('.tl-dot');
+    if (frame.edited && !dot) imgBox.insertAdjacentHTML('beforeend', '<span class="tl-dot"></span>');
+    if (!frame.edited && dot) dot.remove();
+  });
+
+  const current = currentFrame();
+  $('playhead').style.transform = `translateX(${current.el.offsetLeft}px)`;
+
+  $('timecode').innerHTML = `${formatTimecode(current.start)} <span class="dim">/ ${formatTimecode(totalDuration(state.frames))}</span>`;
+  $('keep-count').innerHTML = mode === 'export'
+    ? `導出範圍：保留的 <span class="mono accent">${kept.length}</span> 幀`
+    : `保留 <span class="mono accent">${kept.length}</span> / ${state.frames.length}`;
+  $('legend-edited').hidden = mode === 'split' || !state.frames.some(f => f.edited);
+}
+
+function scrollCurrentIntoView() {
+  const el = currentFrame()?.el;
+  if (!el) return;
+  const scroller = $('timeline-scroll');
+  const left = el.offsetLeft;
+  const right = left + el.offsetWidth;
+  if (left < scroller.scrollLeft + 16) scroller.scrollLeft = left - 16;
+  else if (right > scroller.scrollLeft + scroller.clientWidth - 16) scroller.scrollLeft = right - scroller.clientWidth + 16;
+}
+
+function selectFrame(pos) {
+  if (!state.frames.length) return;
+  state.current = Math.min(Math.max(pos, 0), state.frames.length - 1);
+  renderStage();
+  renderInspector();
+  updateTimeline();
+  scrollCurrentIntoView();
+}
+
+function toggleKeep(pos) {
+  const frame = state.frames[pos];
+  if (!frame || state.removal.running) return;
+  frame.keep = !frame.keep;
+  renderAll();
+}
+
+function setAllKeep(fn) {
+  if (state.removal.running) return;
+  state.frames.forEach(f => { f.keep = fn(f); });
+  renderAll();
+}
+
+function initTimeline() {
+  $('strip').addEventListener('click', (e) => {
+    const el = e.target.closest('.tl-frame');
+    if (!el) return;
+    const pos = Number(el.dataset.pos);
+    if (e.target.closest('.tl-keep')) {
+      toggleKeep(pos);
+      return;
+    }
+    stopPlayback();
+    selectFrame(pos);
+  });
+
+  $('btn-play').addEventListener('click', () => (state.playing ? stopPlayback() : startPlayback()));
+
+  $('timeline-zoom').addEventListener('input', (e) => {
+    state.timelineScale = Number(e.target.value);
+    buildTimeline();
+    updateTimeline();
+    scrollCurrentIntoView();
+  });
+}
+
+// ---------- Playback ----------
+
+function startPlayback() {
+  if (!state.frames.length || (state.file && state.file.isStatic)) return;
+  stopPlayback();
+  state.playing = true;
+  updateTimeline();
+  scheduleNextFrame();
+}
+
+function stopPlayback() {
+  clearTimeout(state.playTimer);
+  state.playTimer = null;
+  if (state.playing) {
+    state.playing = false;
+    updateTimeline();
+  }
+}
+
+function scheduleNextFrame() {
+  if (!state.playing) return;
+  if (state.mode === 'export') {
+    const kept = keptFrames();
+    if (!kept.length) return stopPlayback();
+    const frame = kept[state.exportPos % kept.length];
+    state.playTimer = setTimeout(() => {
+      state.exportPos = (state.exportPos + 1) % kept.length;
+      renderExportAnimation();
+      scheduleNextFrame();
+    }, frame.duration);
+    return;
+  }
+
+  // Split / remove: step through the kept frames (all frames if none are kept)
+  const sequence = state.frames.map((f, pos) => pos).filter(pos => state.frames[pos].keep);
+  const positions = sequence.length ? sequence : state.frames.map((f, pos) => pos);
+  state.playTimer = setTimeout(() => {
+    const next = positions.find(pos => pos > state.current);
+    selectFrame(next === undefined ? positions[0] : next);
+    scheduleNextFrame();
+  }, currentFrame().duration);
+}
+
+// ---------- Modes ----------
+
+function setMode(mode) {
+  const { file, removal } = state;
+  if (!file || state.mode === mode) return;
+  if (file.isStatic && mode !== 'remove') return;
+  if (removal.running && mode !== 'remove') return;
+  if (mode === 'export' && keptFrames().length === 0) return;
+
+  stopPlayback();
+  state.mode = mode;
+  state.exportResult = null;
+
+  if (mode === 'export') {
+    const kept = keptFrames();
+    if (!state.ssColsTouched) $('ss-cols').value = kept.length;
+    state.exportPos = 0;
+  }
+  if (mode === 'remove') state.view = 'removed';
+
+  renderAll();
+  if (mode === 'export') startPlayback();
+}
+
+function initModeSwitch() {
+  $('mode-switch').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-mode]');
+    if (btn && !btn.disabled) setMode(btn.dataset.mode);
+  });
+  $('btn-home').addEventListener('click', () => {
+    if (!state.removal.running) location.reload();
+  });
+}
+
+function initStageControls() {
+  $('zoom-control').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-zoom]');
+    if (!btn) return;
+    state.zoom = btn.dataset.zoom === 'fit' ? 'fit' : Number(btn.dataset.zoom);
+    renderStage();
+  });
+  $('view-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-view]');
+    if (!btn || btn.disabled) return;
+    state.view = btn.dataset.view;
+    renderStage();
+  });
+}
+
+function initKeyboard() {
+  document.addEventListener('keydown', (e) => {
+    if (!state.file || state.file.isStatic || state.mode === 'upload' || state.mode === 'export') return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (target && target.closest('input, select, textarea')) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      stopPlayback();
+      selectFrame(state.current + (e.key === 'ArrowLeft' ? -1 : 1));
+    } else if (e.key === ' ' && state.mode === 'split' && !(target && target.closest('button'))) {
+      e.preventDefault();
+      toggleKeep(state.current);
+    }
+  });
+}
+
+// ---------- Upload ----------
+
+function initUpload() {
+  const input = $('file-input');
+  $('btn-choose-file').addEventListener('click', () => input.click());
+  input.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) openFile(e.target.files[0]);
+    input.value = '';
+  });
+}
+
+function setUploadCard({ variant, title, sub, showButton, buttonText, showExt, showFormats, fileName }) {
+  const card = $('upload-card');
+  card.classList.toggle('is-error', variant === 'error');
+  $('upload-icon').innerHTML = variant === 'loading' ? '<div class="spinner"></div>' : (variant === 'error' ? ICONS.fileX : ICONS.upload);
+
+  const titleEl = $('upload-title');
+  titleEl.textContent = title;
+  if (fileName) {
+    const name = document.createElement('span');
+    name.className = 'mono';
+    name.textContent = fileName;
+    titleEl.append(name);
+  }
+  $('upload-sub').textContent = sub;
+  $('btn-choose-file').hidden = !showButton;
+  $('btn-choose-file').textContent = buttonText || '選擇檔案';
+  $('upload-ext').hidden = !showExt;
+  $('upload-formats').hidden = !showFormats;
+}
+
+async function openFile(file) {
+  if (state.uploading || state.file) return;
+
+  if (!SUPPORTED_EXT.test(file.name)) {
+    const ext = (file.name.match(/\.([^.]+)$/) || [])[1];
+    setUploadCard({
+      variant: 'error',
+      title: '無法開啟 ',
+      fileName: file.name,
+      sub: ext ? `不支援 .${ext.toLowerCase()} 格式，請改用下列其中一種格式再試一次。` : '無法辨識檔案格式，請改用下列其中一種格式再試一次。',
+      showButton: true,
+      buttonText: '選擇其他檔案',
+      showFormats: true
+    });
+    return;
+  }
+
+  state.uploading = true;
+  setUploadCard({ variant: 'loading', title: '正在讀取 ', fileName: file.name, sub: '正在拆解影格與每幀時長' });
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    let res;
+    try {
+      res = await fetch('/api/decompose-gif', { method: 'POST', body: formData });
+    } catch {
+      throw new Error('連不上 GIF Converter，請確認程式視窗還開著，再試一次。');
+    }
+    // The backend's message here is a raw Pillow error, so show a readable one instead
+    if (!res.ok) throw new Error('檔案可能已損毀，或不是有效的圖片。');
+    loadDecomposed(await res.json());
+  } catch (err) {
+    setUploadCard({
+      variant: 'error',
+      title: '無法開啟 ',
+      fileName: file.name,
+      sub: err.message,
+      showButton: true,
+      buttonText: '選擇其他檔案',
+      showFormats: true
+    });
+  } finally {
+    state.uploading = false;
+  }
+}
+
+function loadDecomposed(data) {
+  let start = 0;
+  state.frames = data.frames.map(f => {
+    const frame = {
+      index: f.index,
+      duration: f.duration,
+      image: f.image,
+      width: f.width,
+      height: f.height,
+      start,
+      keep: true,
+      removed: null,       // background-removed image, possibly hand-edited
+      removedAuto: null,   // last AI result, kept so a hand edit can be restored
+      removedModel: '',
+      edited: false,
+      waiting: false,
+      el: null
+    };
+    start += f.duration;
+    return frame;
+  });
+
+  state.file = {
+    name: data.filename,
+    baseName: data.filename.replace(/\.[^/.]+$/, ''),
+    width: data.width,
+    height: data.height,
+    isStatic: !data.is_animated
+  };
+  state.current = 0;
+  state.mode = state.file.isStatic ? 'remove' : 'split';
+  state.view = 'removed';
+
+  buildTimeline();
+  renderAll();
+}
+
+// ---------- Drag & drop ----------
+
+function describeDraggedType(type) {
+  if (type === 'image/gif') return { label: 'GIF', text: '動圖，放開後會拆成逐幀' };
+  if (type === 'image/webp') return { label: 'WebP', text: '動態 WebP 會拆成逐幀，靜態的會直接去背' };
+  if (type === 'image/png') return { label: 'PNG', text: '靜態圖片，放開後直接去背' };
+  if (type === 'image/jpeg') return { label: 'JPG', text: '靜態圖片，放開後直接去背' };
+  if (type === 'image/bmp') return { label: 'BMP', text: '靜態圖片，放開後直接去背' };
+  return null;
+}
+
+function showDropOverlay(e) {
+  const overlay = $('drop-overlay');
+  const content = $('drop-content');
+  overlay.className = 'drop-overlay';
+  content.replaceChildren();
+
+  if (state.file) {
+    overlay.classList.add('is-busy');
+    content.innerHTML = `
+      <div class="drop-badge">${ICONS.ban}</div>
+      <div class="drop-title">目前已開啟 <span class="mono"></span></div>
+      <div class="drop-message">放開不會有任何動作，挑好的影格和去背結果都會保留。<br>要處理新檔案，請先按右上角的「回首頁」。</div>`;
+    content.querySelector('.mono').textContent = state.file.name;
+    $('btn-home').classList.add('btn-home-highlight');
+  } else {
+    const item = e.dataTransfer.items && e.dataTransfer.items[0];
+    const type = item ? item.type : '';
+    const described = describeDraggedType(type);
+    if (type && !described) {
+      overlay.classList.add('is-unsupported');
+      content.innerHTML = `
+        <div class="drop-badge">${ICONS.fileX}</div>
+        <div class="drop-title">不支援這種檔案</div>
+        <div class="drop-message">請改用 .gif、.webp、.png、.jpg 或 .bmp。</div>`;
+    } else {
+      content.innerHTML = `
+        <div class="drop-badge">${ICONS.drop}</div>
+        <div class="drop-title">放開以開啟檔案</div>`;
+      if (described) {
+        content.insertAdjacentHTML('beforeend', `<div class="drop-type"><span class="mono accent">${described.label}</span><span class="muted">${described.text}</span></div>`);
+      }
+    }
+  }
+  overlay.hidden = false;
+}
+
+function hideDropOverlay() {
+  $('drop-overlay').hidden = true;
+  $('btn-home').classList.remove('btn-home-highlight');
+}
+
+function initDragAndDrop() {
+  // dragenter/dragleave also fire for child elements; count them to know when the pointer really left
+  let depth = 0;
+  const draggingFile = (e) => e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
 
   document.addEventListener('dragenter', (e) => {
-    if (!draggingFile(e) || !onUploadScreen()) return;
+    if (!draggingFile(e) || state.uploading) return;
     e.preventDefault();
-    dragDepth++;
-    overlay.classList.add('visible');
+    if (depth++ === 0) showDropOverlay(e);
   });
 
   document.addEventListener('dragover', (e) => {
-    if (draggingFile(e) && onUploadScreen()) e.preventDefault();
+    if (!draggingFile(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = state.file || state.uploading ? 'none' : 'copy';
   });
 
   document.addEventListener('dragleave', (e) => {
     if (!draggingFile(e)) return;
-    dragDepth--;
-    if (dragDepth <= 0) hideOverlay();
+    if (--depth <= 0) {
+      depth = 0;
+      hideDropOverlay();
+    }
   });
 
   document.addEventListener('drop', (e) => {
     if (!draggingFile(e)) return;
     e.preventDefault();
-    hideOverlay();
-    if (onUploadScreen() && e.dataTransfer.files.length > 0) {
-      handleGifUpload(e.dataTransfer.files[0]);
-    }
-  });
-
-  document.getElementById('btn-choose-file').addEventListener('click', () => {
-    fileInput.click();
-  });
-
-  fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      handleGifUpload(e.target.files[0]);
-    }
+    depth = 0;
+    hideDropOverlay();
+    // Once a file is open, drops are ignored so the current work cannot be replaced by accident
+    if (!state.file && !state.uploading && e.dataTransfer.files.length > 0) openFile(e.dataTransfer.files[0]);
   });
 }
 
-async function handleGifUpload(file) {
-  if (!file.name.match(/\.(gif|webp|png|jpe?g|bmp)$/i)) {
-    alert('請上傳有效的 .gif / 動態 .webp，或 .png / .jpg / .bmp 靜態圖片！');
-    return;
-  }
+// ---------- Split panel ----------
 
-  const formData = new FormData();
-  formData.append('file', file);
+function initSplitPanel() {
+  $('split-keep').addEventListener('change', () => toggleKeep(state.current));
+  $('btn-keep-all').addEventListener('click', () => setAllKeep(() => true));
+  $('btn-keep-none').addEventListener('click', () => setAllKeep(() => false));
+  $('btn-keep-invert').addEventListener('click', () => setAllKeep(f => !f.keep));
+  $('btn-goto-remove').addEventListener('click', () => setMode('remove'));
+  $('btn-split-export-frame').addEventListener('click', () => {
+    const frame = currentFrame();
+    downloadDataUrl(frame.image, `${state.file.baseName}_frame_${pad2(frame.index)}.png`);
+  });
+}
 
-  // Show loading UI in place of the hero content
-  document.getElementById('hero-inner').innerHTML = `
-    <div class="spinner"></div>
-    <h2 class="hero-title">正在解析圖片中...</h2>
-    <p class="hero-sub">正在讀取影格圖像與間隙時間 (ms)</p>
-  `;
+// ---------- Remove panel ----------
+
+function readRemovalSettings() {
+  return {
+    model: $('rembg-model').value || 'u2net',
+    alpha_cutoff: parseInt($('rembg-cutoff').value) || 10,
+    post_process_mask: $('rembg-post-process').checked,
+    alpha_matting: $('rembg-alpha-matting').checked,
+    alpha_matting_foreground_threshold: parseInt($('rembg-fg-threshold').value) || 200
+  };
+}
+
+async function runRemoval(targets) {
+  if (!targets.length || state.removal.running) return;
+
+  const editedCount = targets.filter(f => f.edited).length;
+  if (editedCount && !confirm(`有 ${editedCount} 幀手動微調過，重新去背會覆蓋掉這些修改。確定要繼續嗎？`)) return;
+
+  const settings = readRemovalSettings();
+  stopPlayback();
+  targets.forEach(f => { f.waiting = true; });
+  Object.assign(state.removal, { running: true, done: 0, total: targets.length, processingPos: -1, model: settings.model, error: null });
+  renderAll();
 
   try {
-    const res = await fetch('/api/decompose-gif', {
-      method: 'POST',
-      body: formData
-    });
+    // One request per frame so progress is real; the backend reuses the loaded model between calls
+    for (const frame of targets) {
+      state.removal.processingPos = state.frames.indexOf(frame);
+      renderAll();
 
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'GIF 拆解失敗');
+      const res = await postJson('/api/u2net-rembg', {
+        frames: [{ index: frame.index, duration: frame.duration, image: frame.image }],
+        ...settings
+      });
+      if (!res.ok) throw new Error(await errorDetail(res, '去背失敗'));
+
+      const result = (await res.json()).frames[0];
+      Object.assign(frame, { removed: result.image, removedAuto: result.image, removedModel: settings.model, edited: false, waiting: false });
+      state.removal.done++;
     }
-
-    const data = await res.json();
-    state.filename = data.filename;
-    state.width = data.width;
-    state.height = data.height;
-    state.rawFrames = data.frames.map(f => ({ ...f, selected: true }));
-    state.isStatic = !data.is_animated;
-    if (state.isStatic) applyStaticImageMode();
-
-    // Switch to Stage 1
-    document.getElementById('upload-section').classList.add('hidden');
-    document.getElementById('stage-1-section').classList.remove('hidden');
-    
-    renderStage1();
   } catch (err) {
-    alert(`錯誤：${err.message}`);
-    location.reload();
-  }
-}
-
-// --- Still Image Mode: pipeline finishes at Stage 2 ---
-function applyStaticImageMode() {
-  const step3 = document.getElementById('step-nav-3');
-  step3.classList.add('hidden');
-  step3.previousElementSibling.classList.add('hidden');
-
-  // "Skip background removal" only existed as a shortcut into Stage 3
-  document.getElementById('choice-rembg-no').classList.add('hidden');
-  state.useRembg = true;
-}
-
-function downloadFrameAsPng(frame) {
-  const baseName = state.filename ? state.filename.replace(/\.[^/.]+$/, "") : "frame";
-  const a = document.createElement('a');
-  a.href = frame.image;
-  a.download = state.isStatic && frame.removedBg
-    ? `${baseName}_rembg.png`
-    : `${baseName}_frame_${String(frame.index).padStart(2, '0')}.png`;
-  a.click();
-}
-
-// --- STAGE 1: Render & Selection Logic ---
-function renderStage1() {
-  const grid = document.getElementById('frames-grid');
-  grid.innerHTML = '';
-
-  document.getElementById('gif-meta-info').textContent = 
-    `檔案名：${state.filename} | 原圖尺寸：${state.width} x ${state.height} px | 總影格數量：${state.rawFrames.length} 幀`;
-
-  state.rawFrames.forEach((frame) => {
-    const card = document.createElement('div');
-    card.className = `frame-card ${frame.selected ? 'selected' : 'excluded'}`;
-    card.dataset.index = frame.index;
-
-    card.innerHTML = `
-      <div class="frame-badge-topleft">#${frame.index}</div>
-      <div class="frame-checkbox"></div>
-      <div class="frame-thumb-box">
-        <img src="${frame.image}" alt="Frame ${frame.index}" loading="lazy">
-      </div>
-      <div class="frame-footer">
-        <span>間隙時間</span>
-        <strong>${frame.duration} ms</strong>
-      </div>
-    `;
-
-    card.addEventListener('click', () => {
-      frame.selected = !frame.selected;
-      renderStage1Stats();
-      card.className = `frame-card ${frame.selected ? 'selected' : 'excluded'}`;
-    });
-
-    grid.appendChild(card);
-  });
-
-  renderStage1Stats();
-}
-
-function renderStage1Stats() {
-  const selectedList = state.rawFrames.filter(f => f.selected);
-  const totalDuration = selectedList.reduce((sum, f) => sum + f.duration, 0);
-
-  document.getElementById('selected-count-badge').textContent = 
-    `${selectedList.length} / ${state.rawFrames.length}`;
-  document.getElementById('total-duration-badge').textContent = `${totalDuration} ms`;
-}
-
-function initStage1Controls() {
-  document.getElementById('btn-home-stage-1').addEventListener('click', () => {
-    location.reload();
-  });
-
-  document.getElementById('btn-select-all').addEventListener('click', () => {
-    state.rawFrames.forEach(f => f.selected = true);
-    renderStage1();
-  });
-
-  document.getElementById('btn-deselect-all').addEventListener('click', () => {
-    state.rawFrames.forEach(f => f.selected = false);
-    renderStage1();
-  });
-
-  document.getElementById('btn-invert-selection').addEventListener('click', () => {
-    state.rawFrames.forEach(f => f.selected = !f.selected);
-    renderStage1();
-  });
-
-  document.getElementById('btn-delete-selected').addEventListener('click', () => {
-    state.rawFrames.forEach(f => {
-      if (f.selected) f.selected = false;
-    });
-    renderStage1();
-  });
-
-  document.getElementById('btn-goto-stage-2').addEventListener('click', () => {
-    const selected = state.rawFrames.filter(f => f.selected);
-    if (selected.length === 0) {
-      alert('請至少選擇保留 1 幀影格才能進入第二階段！');
-      return;
-    }
-
-    // Results from an earlier Stage 2 run belong to the previous selection
-    const selectionKey = frames => frames.map(f => f.index).join(',');
-    if (state.rembgFrames.length > 0 && selectionKey(state.rembgFrames) !== selectionKey(selected)) {
-      const hasEdits = state.rembgFrames.some(f => f.edited);
-      if (hasEdits && !confirm('⚠️ 影格選擇已變更，先前的去背結果與手動微調將被清除，確定要繼續嗎？')) {
-        return;
-      }
-      state.rembgFrames = [];
-    }
-    state.selectedFrames = selected;
-
-    // Switch step indicator & view
-    setStepActive(2);
-    document.getElementById('stage-1-section').classList.add('hidden');
-    document.getElementById('stage-2-section').classList.remove('hidden');
-    resetStage2UI();
-    renderStage2Previews();
-  });
-}
-
-// --- STAGE 2: U2-Net Controls ---
-function initStage2Controls() {
-  const choiceYes = document.getElementById('choice-rembg-yes');
-  const choiceNo = document.getElementById('choice-rembg-no');
-  const settingsBlock = document.getElementById('rembg-settings-block');
-
-  choiceYes.addEventListener('click', () => {
-    choiceYes.classList.add('active');
-    choiceNo.classList.remove('active');
-    choiceYes.querySelector('input').checked = true;
-    state.useRembg = true;
-    if (settingsBlock) settingsBlock.classList.remove('hidden');
-  });
-
-  choiceNo.addEventListener('click', () => {
-    choiceNo.classList.add('active');
-    choiceYes.classList.remove('active');
-    choiceNo.querySelector('input').checked = true;
-    state.useRembg = false;
-    if (settingsBlock) settingsBlock.classList.add('hidden');
-  });
-
-  // Range Slider & Checkbox Event Listeners
-  const cutoffInput = document.getElementById('rembg-cutoff');
-  const cutoffVal = document.getElementById('rembg-cutoff-val');
-  if (cutoffInput && cutoffVal) {
-    cutoffInput.addEventListener('input', (e) => {
-      cutoffVal.textContent = e.target.value;
-    });
-  }
-
-  const fgInput = document.getElementById('rembg-fg-threshold');
-  const fgVal = document.getElementById('rembg-fg-val');
-  if (fgInput && fgVal) {
-    fgInput.addEventListener('input', (e) => {
-      fgVal.textContent = e.target.value;
-    });
-  }
-
-  const alphaMattingCheckbox = document.getElementById('rembg-alpha-matting');
-  const alphaMattingSubgroup = document.getElementById('alpha-matting-subgroup');
-  if (alphaMattingCheckbox && alphaMattingSubgroup) {
-    alphaMattingCheckbox.addEventListener('change', (e) => {
-      if (e.target.checked) {
-        alphaMattingSubgroup.classList.remove('hidden');
-      } else {
-        alphaMattingSubgroup.classList.add('hidden');
-      }
-    });
-  }
-
-  document.getElementById('btn-home-stage-2').addEventListener('click', () => {
-    location.reload();
-  });
-
-  document.getElementById('btn-back-to-stage-1').addEventListener('click', () => {
-    setStepActive(1);
-    document.getElementById('stage-2-section').classList.add('hidden');
-    document.getElementById('stage-1-section').classList.remove('hidden');
-  });
-
-  // 🚀 Main action button (Start AI / Direct Proceed)
-  document.getElementById('btn-start-stage-2').addEventListener('click', async () => {
-    if (state.isStatic) {
-      if (state.rembgFrames.length > 0) {
-        downloadFrameAsPng(state.rembgFrames[0]);
-      } else {
-        await runRembgProcess();
-      }
-      return;
-    }
-
-    if (!state.useRembg) {
-      // Direct pass to stage 3 without rembg
-      state.rembgFrames = [...state.selectedFrames];
-      gotoStage3();
-      return;
-    }
-
-    // If AI background removal has already run or frames exist, proceed directly to Stage 3 (preserving manual edits!)
-    if (state.rembgFrames && state.rembgFrames.length > 0) {
-      gotoStage3();
-      return;
-    }
-
-    // Otherwise run AI background removal for the first time
-    await runRembgProcess();
-  });
-
-  // 🔄 Reprocess button (explicitly re-run AI background removal)
-  const reprocessBtn = document.getElementById('btn-reprocess-rembg');
-  if (reprocessBtn) {
-    reprocessBtn.addEventListener('click', async () => {
-      const hasEdits = state.rembgFrames && state.rembgFrames.some(f => f.edited);
-      if (hasEdits) {
-        const confirmClear = confirm('⚠️ 您手動微調過的部分影格將被重新 AI 去背覆蓋，確定要重新執行嗎？');
-        if (!confirmClear) return;
-      }
-      await runRembgProcess();
-    });
-  }
-}
-
-async function runRembgProcess() {
-  // Read configured Rembg parameters
-  const selectedModel = document.getElementById('rembg-model').value || 'u2net';
-  const alphaCutoff = parseInt(document.getElementById('rembg-cutoff').value) || 10;
-  const postProcessMask = document.getElementById('rembg-post-process').checked;
-  const alphaMatting = document.getElementById('rembg-alpha-matting').checked;
-  const fgThreshold = parseInt(document.getElementById('rembg-fg-threshold').value) || 200;
-
-  // Run U2-Net background removal
-  const progressArea = document.getElementById('rembg-progress-area');
-  const statusText = document.getElementById('rembg-status-text');
-  const progressFill = document.getElementById('rembg-progress-fill');
-  const startBtn = document.getElementById('btn-start-stage-2');
-
-  progressArea.classList.remove('hidden');
-  if (startBtn) startBtn.disabled = true;
-  progressFill.style.width = '30%';
-  statusText.textContent = `正在使用 AI 模型 (${selectedModel}) 處理 ${state.selectedFrames.length} 幀圖像...`;
-
-  try {
-    const res = await fetch('/api/u2net-rembg', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        frames: state.selectedFrames.map(f => ({
-          index: f.index,
-          duration: f.duration,
-          image: f.image
-        })),
-        model: selectedModel,
-        alpha_cutoff: alphaCutoff,
-        post_process_mask: postProcessMask,
-        alpha_matting: alphaMatting,
-        alpha_matting_foreground_threshold: fgThreshold
-      })
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'U2-Net 去背處理失敗');
-    }
-
-    progressFill.style.width = '90%';
-    statusText.textContent = '去背完成，正在優化圖層...';
-
-    const data = await res.json();
-    state.rembgFrames = data.frames.map(f => ({ ...f, removedBg: true }));
-
-    progressFill.style.width = '100%';
-    statusText.textContent = state.isStatic
-      ? '✅ 去背完成！可於下方預覽、微調並下載透明 PNG。若邊緣不理想，可換一個模型再次執行。'
-      : '✅ 所有影格去背完成！';
-
-    // Render U2-Net previews & update button labels
-    renderStage2Previews();
-
-    if (!state.isStatic) {
-      setTimeout(() => {
-        gotoStage3();
-      }, 800);
-    }
-
-  } catch (err) {
-    alert(`去背處理失敗：${err.message}`);
-    progressArea.classList.add('hidden');
+    state.removal.error = err.message;
   } finally {
-    if (startBtn) startBtn.disabled = false;
+    targets.forEach(f => { f.waiting = false; });
+    state.removal.running = false;
+    state.removal.processingPos = -1;
+    state.view = 'removed';
+    renderAll();
   }
 }
 
-function updateStage2FooterButtons() {
-  const startBtn = document.getElementById('btn-start-stage-2');
-  const reprocessBtn = document.getElementById('btn-reprocess-rembg');
+function initRemovePanel() {
+  $('rembg-model').addEventListener('change', () => renderInspector());
 
-  if (state.isStatic) {
-    const done = state.rembgFrames.length > 0;
-    reprocessBtn.classList.toggle('hidden', !done);
-    startBtn.textContent = done ? '⬇️ 下載透明 PNG' : '✨ 開始 AI 去背';
-    startBtn.className = done ? 'btn btn-success' : 'btn btn-primary';
-    return;
-  }
+  $('rembg-cutoff').addEventListener('input', (e) => { $('rembg-cutoff-val').textContent = e.target.value; });
+  $('rembg-fg-threshold').addEventListener('input', (e) => { $('rembg-fg-val').textContent = e.target.value; });
+  $('rembg-alpha-matting').addEventListener('change', (e) => { $('fg-threshold-field').hidden = !e.target.checked; });
 
-  if (state.rembgFrames && state.rembgFrames.length > 0) {
-    if (reprocessBtn) reprocessBtn.classList.remove('hidden');
-    if (startBtn) {
-      const hasEdits = state.rembgFrames.some(f => f.edited);
-      startBtn.textContent = hasEdits ? '🚀 套用微調成果並進入第三階段 →' : '🚀 直接進入第三階段 →';
-      startBtn.className = 'btn btn-success';
-    }
-  } else {
-    if (reprocessBtn) reprocessBtn.classList.add('hidden');
-    if (startBtn) {
-      startBtn.textContent = '✨ 開始處理 / 進入第三階段 →';
-      startBtn.className = 'btn btn-primary';
-    }
-  }
-}
+  $('btn-remove-primary').addEventListener('click', () => { if (removePrimaryAction) removePrimaryAction(); });
+  $('btn-remove-secondary').addEventListener('click', () => { if (removeSecondaryAction) removeSecondaryAction(); });
 
-function resetStage2UI() {
-  const startBtn = document.getElementById('btn-start-stage-2');
-  if (startBtn) {
-    startBtn.disabled = false;
-  }
-  const progressArea = document.getElementById('rembg-progress-area');
-  if (progressArea) {
-    progressArea.classList.add('hidden');
-  }
-  updateStage2FooterButtons();
-}
-
-function renderStage2Previews() {
-  const container = document.getElementById('rembg-preview-container');
-  const grid = document.getElementById('rembg-preview-grid');
-  container.classList.remove('hidden');
-  grid.innerHTML = '';
-
-  // Before background removal runs, show the selected original frames so a single
-  // frame can already be exported (e.g. from a GIF that is transparent already)
-  const hasRembgResult = state.rembgFrames.some(f => f.removedBg);
-  const frames = state.rembgFrames.length > 0 ? state.rembgFrames : state.selectedFrames;
-
-  document.getElementById('stage2-preview-title').textContent =
-    hasRembgResult ? '去背成果預覽與單幀手動微調' : '逐幀預覽';
-  document.getElementById('stage2-preview-desc').textContent = hasRembgResult
-    ? '💡 若發現某影格去背不完美，可點擊該幀的「⬇️ 導出」於繪圖軟體微調後，再點擊「⬆️ 替換」傳回修正圖！'
-    : '💡 可直接點擊「⬇️ 導出」將任一影格存成 PNG；執行 AI 去背後，這裡會換成去背成果並可逐幀微調。';
-
-  frames.forEach((f, idx) => {
-    const card = document.createElement('div');
-    card.className = `frame-card selected ${f.edited ? 'frame-edited' : ''}`;
-    card.innerHTML = `
-      <div class="frame-badge-topleft">#${f.index}</div>
-      ${f.edited ? '<div class="frame-badge-edited">✨ 已微調</div>' : ''}
-      <div class="frame-thumb-box">
-        <img src="${f.image}" alt="Rembg frame ${f.index}">
-      </div>
-      <div class="frame-footer">
-        <span>${f.edited ? '已微調' : (f.removedBg ? '已去背' : '原始影格')}</span>
-        <strong>${f.duration} ms</strong>
-      </div>
-      <div class="frame-card-actions">
-        <button class="btn btn-sm btn-secondary btn-export-frame" title="導出此影格圖檔 (PNG) 至電腦微調">⬇️ 導出</button>
-        ${f.removedBg ? `<label class="btn btn-sm btn-primary btn-import-label" title="上傳微調後的 PNG 替換此影格">
-          ⬆️ 替換
-          <input type="file" accept="image/png, image/webp" class="btn-import-file" style="display:none;">
-        </label>` : ''}
-        ${f.edited ? '<button class="btn btn-sm btn-danger btn-reset-frame" title="重置為原始 AI 去背成果">↺ 復原</button>' : ''}
-      </div>
-    `;
-
-    // ⬇️ Export single frame PNG handler
-    const exportBtn = card.querySelector('.btn-export-frame');
-    exportBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      downloadFrameAsPng(f);
-    });
-
-    // ⬆️ Import / Replace single frame PNG handler
-    const fileInput = card.querySelector('.btn-import-file');
-    if (fileInput) fileInput.addEventListener('change', (e) => {
-      e.stopPropagation();
-      if (e.target.files && e.target.files[0]) {
-        const file = e.target.files[0];
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-          if (!f.originalImage) {
-            f.originalImage = f.image;
-          }
-          f.image = evt.target.result;
-          f.edited = true;
-          renderStage2Previews();
-        };
-        reader.readAsDataURL(file);
-      }
-    });
-
-    // ↺ Reset single frame handler
-    const resetBtn = card.querySelector('.btn-reset-frame');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (f.originalImage) {
-          f.image = f.originalImage;
-          f.edited = false;
-          renderStage2Previews();
-        }
-      });
-    }
-
-    grid.appendChild(card);
+  $('btn-touchup-export').addEventListener('click', () => {
+    const frame = currentFrame();
+    downloadDataUrl(outputImage(frame), `${state.file.baseName}_frame_${pad2(frame.index)}.png`);
   });
 
-  updateStage2FooterButtons();
-}
-
-function gotoStage3() {
-  setStepActive(3);
-  document.getElementById('stage-2-section').classList.add('hidden');
-  document.getElementById('stage-3-section').classList.remove('hidden');
-
-  // Ensure Stage 2 UI controls are reset if user navigates back
-  resetStage2UI();
-
-  // Default columns to total frame count (all frames in horizontal line)
-  if (state.rembgFrames && state.rembgFrames.length > 0) {
-    document.getElementById('ss-cols').value = state.rembgFrames.length;
-  }
-}
-
-// --- STAGE 3: Synthesis & Export Controls ---
-function initStage3Controls() {
-  document.getElementById('btn-back-to-stage-2').addEventListener('click', () => {
-    setStepActive(2);
-    document.getElementById('stage-3-section').classList.add('hidden');
-    document.getElementById('stage-2-section').classList.remove('hidden');
-    resetStage2UI();
+  $('touchup-file').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    const frame = currentFrame();
+    e.target.value = '';
+    if (!file || !frame.removed) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      frame.removed = evt.target.result;
+      frame.edited = true;
+      state.view = 'removed';
+      renderAll();
+    };
+    reader.readAsDataURL(file);
   });
 
-  const handleReturnHome = () => {
-    location.reload();
-  };
+  $('btn-touchup-restore').addEventListener('click', () => {
+    const frame = currentFrame();
+    if (!frame.edited) return;
+    frame.removed = frame.removedAuto;
+    frame.edited = false;
+    renderAll();
+  });
+}
 
-  const btnResetHome = document.getElementById('btn-reset-home');
-  if (btnResetHome) btnResetHome.addEventListener('click', handleReturnHome);
+// ---------- Export panel ----------
 
-  const btnHomeTop = document.getElementById('btn-home-top');
-  if (btnHomeTop) btnHomeTop.addEventListener('click', handleReturnHome);
-
-  const updateExportOptionsVisibility = () => {
-    const selectedTypes = Array.from(document.querySelectorAll('input[name="export-type"]:checked')).map(el => el.value);
-    const gifBlock = document.getElementById('gif-options-block');
-    const webpBlock = document.getElementById('webp-options-block');
-    const ssBlock = document.getElementById('spritesheet-options-block');
-
-    if (gifBlock) gifBlock.classList.toggle('hidden', !selectedTypes.includes('gif'));
-    if (webpBlock) webpBlock.classList.toggle('hidden', !selectedTypes.includes('webp'));
-    if (ssBlock) ssBlock.classList.toggle('hidden', !selectedTypes.includes('spritesheet'));
-  };
-
+function initExportPanel() {
   document.querySelectorAll('input[name="export-type"]').forEach(cb => {
-    cb.addEventListener('change', updateExportOptionsVisibility);
+    cb.addEventListener('change', () => {
+      state.exportResult = null;
+      renderInspector();
+      renderExportPreview();
+    });
   });
-  updateExportOptionsVisibility();
 
-  document.getElementById('btn-generate').addEventListener('click', async () => {
-    const exportTypes = Array.from(document.querySelectorAll('input[name="export-type"]:checked')).map(el => el.value);
-    if (exportTypes.length === 0) {
-      alert('請至少選擇一種導出格式！');
-      return;
-    }
-
-    const gifFpsOverride = parseFloat(document.getElementById('gif-fps').value) || null;
-    const gifLoop = parseInt(document.getElementById('gif-loop').value) || 0;
-
-    const webpFpsOverride = parseFloat(document.getElementById('webp-fps').value) || null;
-    const webpLoop = parseInt(document.getElementById('webp-loop').value) || 0;
-    const webpLossless = document.getElementById('webp-lossless').checked;
-
-    const ssCols = parseInt(document.getElementById('ss-cols').value) || 5;
-    const ssPadding = parseInt(document.getElementById('ss-padding').value) || 2;
-    const ssTransparent = document.getElementById('ss-transparent').checked;
-
-    const payload = {
-      frames: state.rembgFrames,
-      export_types: exportTypes,
-      gif_options: {
-        fps_override: gifFpsOverride,
-        loop: gifLoop
-      },
-      webp_options: {
-        fps_override: webpFpsOverride,
-        loop: webpLoop,
-        lossless: webpLossless
-      },
-      spritesheet_options: {
-        columns: ssCols,
-        padding: ssPadding,
-        transparent_bg: ssTransparent
-      }
-    };
-
-    const loading = document.getElementById('synthesis-loading');
-    const resultsDisplay = document.getElementById('results-display');
-    const genBtn = document.getElementById('btn-generate');
-
-    loading.classList.remove('hidden');
-    resultsDisplay.classList.add('hidden');
-    genBtn.disabled = true;
-
-    try {
-      const res = await fetch('/api/synthesize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || '合成導出失敗');
-      }
-
-      const data = await res.json();
-      state.synthesisResult = data;
-
-      renderSynthesisResults(data);
-    } catch (err) {
-      alert(`合成失敗：${err.message}`);
-    } finally {
-      loading.classList.add('hidden');
-      genBtn.disabled = false;
-    }
+  ['ss-cols', 'ss-padding'].forEach(id => {
+    $(id).addEventListener('input', () => {
+      if (id === 'ss-cols') state.ssColsTouched = true;
+      renderExportPreview();
+    });
   });
+
+  $('btn-export').addEventListener('click', runExport);
 }
 
-function renderSynthesisResults(data) {
-  const resultsDisplay = document.getElementById('results-display');
-  const gifBlock = document.getElementById('result-gif-block');
-  const webpBlock = document.getElementById('result-webp-block');
-  const ssBlock = document.getElementById('result-ss-block');
+async function runExport() {
+  const types = selectedExportTypes();
+  const kept = keptFrames();
+  if (!types.length || !kept.length || state.exporting) return;
 
-  resultsDisplay.classList.remove('hidden');
+  state.exporting = true;
+  state.exportResult = null;
+  renderExportPanel();
 
-  const baseName = state.filename ? state.filename.replace(/\.[^/.]+$/, "") : "output";
-
-  // 1. GIF Result
-  if (data.gif) {
-    gifBlock.classList.remove('hidden');
-    document.getElementById('res-gif-img').src = data.gif.data_url;
-    document.getElementById('res-gif-meta').textContent = 
-      `總幀數: ${data.gif.total_frames} | 檔案大小: ${(data.gif.size_bytes / 1024).toFixed(1)} KB`;
-
-    const downloadBtn = document.getElementById('download-gif-btn');
-    downloadBtn.href = data.gif.data_url;
-    downloadBtn.download = `${baseName}_new.gif`;
-  } else {
-    gifBlock.classList.add('hidden');
-  }
-
-  // 2. WebP Result
-  if (data.webp) {
-    webpBlock.classList.remove('hidden');
-    document.getElementById('res-webp-img').src = data.webp.data_url;
-    document.getElementById('res-webp-meta').textContent = 
-      `總幀數: ${data.webp.total_frames} | 檔案大小: ${(data.webp.size_bytes / 1024).toFixed(1)} KB`;
-
-    const downloadWebpBtn = document.getElementById('download-webp-btn');
-    downloadWebpBtn.href = data.webp.data_url;
-    downloadWebpBtn.download = `${baseName}_animated.webp`;
-  } else {
-    webpBlock.classList.add('hidden');
-  }
-
-  // 3. Sprite Sheet Result
-  if (data.spritesheet) {
-    ssBlock.classList.remove('hidden');
-    document.getElementById('res-ss-img').src = data.spritesheet.data_url;
-    document.getElementById('res-ss-meta').textContent = 
-      `尺寸: ${data.spritesheet.width} x ${data.spritesheet.height} px | 排列: ${data.spritesheet.columns} 欄 x ${data.spritesheet.rows} 列`;
-
-    const downloadSsBtn = document.getElementById('download-ss-btn');
-    downloadSsBtn.href = data.spritesheet.data_url;
-    downloadSsBtn.download = `${baseName}_spritesheet.png`;
-
-    const downloadJsonBtn = document.getElementById('download-json-btn');
-    downloadJsonBtn.onclick = () => {
-      const jsonStr = JSON.stringify(data.spritesheet.meta, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${baseName}_spritesheet.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-  } else {
-    ssBlock.classList.add('hidden');
-  }
-}
-
-function setStepActive(stepNum) {
-  for (let i = 1; i <= 3; i++) {
-    const navItem = document.getElementById(`step-nav-${i}`);
-    if (i === stepNum) {
-      navItem.classList.add('active');
-    } else {
-      navItem.classList.remove('active');
+  const payload = {
+    frames: kept.map(f => ({ index: f.index, duration: f.duration, image: outputImage(f) })),
+    export_types: types,
+    gif_options: {
+      fps_override: parseFloat($('gif-fps').value) || null,
+      loop: parseInt($('gif-loop').value) || 0
+    },
+    webp_options: {
+      fps_override: parseFloat($('webp-fps').value) || null,
+      loop: parseInt($('webp-loop').value) || 0,
+      lossless: $('webp-lossless').checked
+    },
+    spritesheet_options: {
+      columns: parseInt($('ss-cols').value) || kept.length,
+      padding: parseInt($('ss-padding').value) || 0,
+      transparent_bg: $('ss-transparent').checked
     }
+  };
+
+  try {
+    const res = await postJson('/api/synthesize', payload);
+    if (!res.ok) throw new Error(await errorDetail(res, '導出失敗'));
+    const data = await res.json();
+
+    const base = state.file.baseName;
+    const downloads = [];
+    if (data.gif) downloads.push([data.gif.data_url, `${base}_new.gif`]);
+    if (data.webp) downloads.push([data.webp.data_url, `${base}_animated.webp`]);
+    if (data.spritesheet) {
+      downloads.push([data.spritesheet.data_url, `${base}_spritesheet.png`]);
+      const json = new Blob([JSON.stringify(data.spritesheet.meta, null, 2)], { type: 'application/json' });
+      downloads.push([URL.createObjectURL(json), `${base}_spritesheet.json`]);
+    }
+
+    // Browsers drop rapid back-to-back downloads, so space them out
+    for (const [href, name] of downloads) {
+      downloadDataUrl(href, name);
+      await sleep(300);
+      if (href.startsWith('blob:')) URL.revokeObjectURL(href);
+    }
+    state.exportResult = { ok: true, message: `已導出 ${downloads.length} 個檔案` };
+  } catch (err) {
+    state.exportResult = { ok: false, message: `導出失敗：${err.message}` };
+  } finally {
+    state.exporting = false;
+    renderExportPanel();
   }
 }

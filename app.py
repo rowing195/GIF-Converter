@@ -16,6 +16,16 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = FastAPI(title="GIF Converter")
 
+
+@app.middleware("http")
+async def revalidate_frontend_files(request, call_next):
+    # Without this, browsers heuristically cache the UI files and can pair a new page
+    # with an old stylesheet after an upgrade. no-cache still allows 304 revalidation.
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 # Global lazy-loaded rembg sessions dict
 rembg_sessions = {}
 

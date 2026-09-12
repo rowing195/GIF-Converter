@@ -170,7 +170,7 @@
                 <button type="button" class="btn btn-outline btn-sm" id="btn-keep-none">全不選</button>
                 <button type="button" class="btn btn-outline btn-sm" id="btn-keep-invert">反選</button>
               </div>
-              <p class="hint">點時間軸上的影格切換目前這一幀，點影格右上角的勾選框切換保留或略過。鍵盤 ← → 切換影格，空白鍵切換保留。</p>
+              <p class="hint">點時間軸上的影格或拖曳黃色指針切換目前這一幀，點影格右上角的勾選框切換保留或略過。鍵盤 ← → 切換影格，空白鍵切換保留。</p>
             </div>
           </div>
           <div class="panel-footer">
@@ -358,7 +358,9 @@
         <div class="timeline-track" id="timeline-track" hidden>
           <div class="ruler" id="ruler"></div>
           <div class="strip" id="strip"></div>
-          <div class="playhead" id="playhead"></div>
+          <div class="playhead" id="playhead">
+            <div class="playhead-grip" id="playhead-grip" title="拖曳以切換影格"></div>
+          </div>
         </div>
       </div>
     </section>

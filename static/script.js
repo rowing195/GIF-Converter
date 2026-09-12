@@ -621,13 +621,15 @@ function scrollCurrentIntoView() {
   else if (right > scroller.scrollLeft + scroller.clientWidth - 16) scroller.scrollLeft = right - scroller.clientWidth + 16;
 }
 
-function selectFrame(pos) {
+function selectFrame(pos, { keepScroll = false } = {}) {
   if (!state.frames.length) return;
-  state.current = Math.min(Math.max(pos, 0), state.frames.length - 1);
+  const next = Math.min(Math.max(pos, 0), state.frames.length - 1);
+  if (next === state.current && keepScroll) return;
+  state.current = next;
   renderStage();
   renderInspector();
   updateTimeline();
-  scrollCurrentIntoView();
+  if (!keepScroll) scrollCurrentIntoView();
 }
 
 function toggleKeep(pos) {
@@ -658,12 +660,58 @@ function initTimeline() {
 
   $('btn-play').addEventListener('click', () => (state.playing ? stopPlayback() : startPlayback()));
 
+  initPlayheadScrub();
+
   $('timeline-zoom').addEventListener('input', (e) => {
     state.timelineScale = Number(e.target.value);
     buildTimeline();
     updateTimeline();
     scrollCurrentIntoView();
   });
+}
+
+// Drag the playhead's handle to scrub through frames
+function initPlayheadScrub() {
+  const grip = $('playhead-grip');
+  const playhead = $('playhead');
+  let scrubbing = false;
+
+  const frameAtOffset = (x) => {
+    const last = state.frames.length - 1;
+    for (let pos = 0; pos < state.frames.length; pos++) {
+      const el = state.frames[pos].el;
+      if (x < el.offsetLeft + el.offsetWidth) return pos;
+    }
+    return last;
+  };
+
+  const scrubTo = (clientX) => {
+    const track = $('timeline-track');
+    const x = clientX - track.getBoundingClientRect().left;
+    selectFrame(frameAtOffset(Math.max(0, x)), { keepScroll: true });
+  };
+
+  grip.addEventListener('pointerdown', (e) => {
+    if (!state.frames.length) return;
+    e.preventDefault();
+    stopPlayback();
+    scrubbing = true;
+    playhead.classList.add('is-scrubbing');
+    grip.setPointerCapture(e.pointerId);
+    scrubTo(e.clientX);
+  });
+
+  grip.addEventListener('pointermove', (e) => {
+    if (scrubbing) scrubTo(e.clientX);
+  });
+
+  const endScrub = () => {
+    if (!scrubbing) return;
+    scrubbing = false;
+    playhead.classList.remove('is-scrubbing');
+  };
+  grip.addEventListener('pointerup', endScrub);
+  grip.addEventListener('pointercancel', endScrub);
 }
 
 // ---------- Playback ----------

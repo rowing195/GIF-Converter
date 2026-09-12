@@ -84,6 +84,17 @@
             </div>
             <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
           </div>
+          <div class="float-card error-card" id="stage-error" hidden>
+            <div class="error-icon" id="stage-error-icon"></div>
+            <div class="error-body">
+              <div class="error-title" id="stage-error-title"></div>
+              <p class="error-text" id="stage-error-text"></p>
+              <div class="error-actions">
+                <button type="button" class="btn btn-primary btn-sm" id="btn-error-fallback" hidden></button>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-error-retry">重試</button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- Export preview -->
@@ -212,6 +223,17 @@
                   <p class="hint">調低（150–200）可把模糊區當成前景，避免服裝和肢體被削掉。</p>
                 </div>
               </div>
+              <div class="section" id="scope-section">
+                <div class="section-label">處理範圍</div>
+                <label class="radio-row">
+                  <input type="radio" class="radio" name="remove-scope" value="kept" checked>
+                  <span id="scope-kept-label"></span>
+                </label>
+                <label class="radio-row">
+                  <input type="radio" class="radio" name="remove-scope" value="current">
+                  <span id="scope-current-label"></span>
+                </label>
+              </div>
             </fieldset>
 
             <div class="section" id="touchup-section" hidden>
@@ -238,10 +260,7 @@
           </div>
           <div class="panel-footer">
             <button type="button" class="btn btn-primary" id="btn-remove-primary"></button>
-            <button type="button" class="btn btn-outline" id="btn-remove-secondary" hidden>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><polyline points="20 4 20 9 15 9"/></svg>
-              用目前設定重新去背
-            </button>
+            <button type="button" class="btn btn-outline" id="btn-remove-secondary" hidden></button>
           </div>
         </div>
 

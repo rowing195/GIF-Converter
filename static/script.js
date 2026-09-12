@@ -21,6 +21,9 @@ const ICONS = {
   spin: '<svg class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>',
   spinLarge: '<svg class="spin-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>',
   alert: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  alertTriangle: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><line x1="12" y1="10" x2="12" y2="14"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  wifiOff: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.8a15 15 0 0 1 4.2-2.7"/><path d="M10.7 5.1A15 15 0 0 1 22 8.8"/><path d="M5 12.9a10 10 0 0 1 5.2-2.8"/><path d="M16.9 11.1A10 10 0 0 1 19 12.9"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>',
+  retry: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><polyline points="20 4 20 9 15 9"/></svg>',
   arrow: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
   sparkle: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></svg>',
   download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><polyline points="7 10 12 15 17 10"/><path d="M5 20h14"/></svg>'
@@ -102,12 +105,17 @@ async function postJson(url, body) {
   }
 }
 
-async function errorDetail(res, fallback) {
+// The backend returns {code, model, message} for background-removal failures so the
+// UI can offer a way out; other endpoints still answer with a plain string detail.
+async function requestError(res, fallback) {
   try {
-    const data = await res.json();
-    return data.detail || fallback;
+    const detail = (await res.json()).detail;
+    if (detail && typeof detail === 'object') {
+      return { code: detail.code || 'error', model: detail.model, message: detail.message || fallback };
+    }
+    return { code: 'error', message: detail || fallback };
   } catch {
-    return `${fallback}（HTTP ${res.status}）`;
+    return { code: 'error', message: `${fallback}（HTTP ${res.status}）` };
   }
 }
 
@@ -201,13 +209,14 @@ function renderViewer() {
     { text: frameLabel(frame), mono: true, tone: 'accent' },
     { text: `${frame.duration} ms`, mono: true }
   ];
-  let status;
-  if (!frame.keep) status = mode === 'remove' ? '已略過，不會去背' : '已略過';
-  else if (mode === 'split') status = '原始影格';
-  else if (removal.running && state.frames.indexOf(frame) === removal.processingPos) status = '去背中…';
-  else if (showRemoved) status = frame.edited ? '已手動微調' : `已去背 · ${modelLabel(frame.removedModel)}`;
-  else status = frame.removed ? '原始影格' : '原始影格 · 尚未去背';
-  chips.push({ text: status, tone: 'muted' });
+  let status = { text: '', tone: 'muted' };
+  if (!frame.keep) status.text = mode === 'remove' ? '已略過，不會去背' : '已略過';
+  else if (mode === 'split') status.text = '原始影格';
+  else if (removal.running && state.frames.indexOf(frame) === removal.processingPos) status.text = '去背中…';
+  else if (frame.failed && !showRemoved) status = { text: '去背失敗 · 已保留原圖', tone: 'danger' };
+  else if (showRemoved) status.text = frame.edited ? '已手動微調' : `已去背 · ${modelLabel(frame.removedModel)}`;
+  else status.text = frame.removed ? '原始影格' : '原始影格 · 尚未去背';
+  chips.push(status);
   setChips($('stage-chips'), chips);
 
   // Original / removed toggle
@@ -219,6 +228,8 @@ function renderViewer() {
     btn.classList.toggle('is-active', isRemovedBtn ? showRemoved : !showRemoved);
   });
 
+  renderStageError();
+
   // Removal progress
   $('progress-card').hidden = !(mode === 'remove' && removal.running);
   if (removal.running) {
@@ -229,6 +240,37 @@ function renderViewer() {
       : modelLabel(removal.model);
     $('progress-fill').style.width = `${(removal.done / removal.total) * 100}%`;
   }
+}
+
+// A stopped run explains itself on the stage, with a way out where one exists
+function renderStageError() {
+  const { removal, mode } = state;
+  const error = removal.error;
+  const card = $('stage-error');
+  card.hidden = !(mode === 'remove' && error && !removal.running);
+  if (card.hidden) return;
+
+  const name = error.model ? modelLabel(error.model) : '';
+  const messages = {
+    model_download_failed: {
+      title: `無法下載 ${name} 模型`,
+      text: '第一次使用這個模型需要連網下載模型檔，目前連不上網路。可以改用已內建的 U2-Net，或連上網路後再試一次。'
+    },
+    unknown_model: { title: `找不到 ${name} 模型`, text: '這個模型不存在，請改選其他模型。' },
+    rembg_missing: { title: '去背功能無法啟動', text: `rembg 套件載入失敗：${error.message}` },
+    model_load_failed: { title: `${name} 模型載入失敗`, text: error.message }
+  };
+  const copy = messages[error.code] || { title: '去背中斷', text: error.message };
+
+  $('stage-error-icon').innerHTML = error.code === 'model_download_failed' ? ICONS.wifiOff : ICONS.alert;
+  $('stage-error-title').textContent = copy.title;
+  $('stage-error-text').textContent = copy.text;
+
+  const fallback = $('btn-error-fallback');
+  const canFallBack = error.model && error.model !== 'u2net' && error.code !== 'rembg_missing';
+  fallback.hidden = !canFallBack;
+  fallback.textContent = '改用 U2-Net';
+  $('btn-error-retry').hidden = error.code === 'rembg_missing';
 }
 
 function renderExportPreview() {
@@ -320,27 +362,49 @@ function removePlan() {
   if (file.isStatic) {
     const frame = state.frames[0];
     return frame.removed
-      ? { primary: { html: `${ICONS.download} 下載透明 PNG`, action: () => downloadDataUrl(frame.removed, `${file.baseName}_rembg.png`) },
-          secondary: () => runRemoval([frame]) }
+      ? {
+          primary: { html: `${ICONS.download} 下載透明 PNG`, action: () => downloadDataUrl(frame.removed, `${file.baseName}_rembg.png`) },
+          secondary: { html: `${ICONS.retry} 用目前設定重新去背`, action: () => runRemoval([frame]) }
+        }
       : { primary: { html: `${ICONS.sparkle} 開始去背`, action: () => runRemoval([frame]) } };
   }
   const kept = keptFrames();
   const missing = kept.filter(f => !f.removed);
   if (kept.length === 0) return { primary: { html: '請先保留至少 1 幀', disabled: true } };
+
+  if (removalScope() === 'current') {
+    const frame = currentFrame();
+    const runAll = { html: `${ICONS.sparkle} 去背保留的 ${kept.length} 幀`, action: () => runRemoval(kept) };
+    const toExport = { html: `下一步：導出 ${ICONS.arrow}`, action: () => setMode('export') };
+    if (!frame.keep) {
+      return { primary: { html: '這一幀已略過，不會去背', disabled: true }, secondary: missing.length ? runAll : toExport };
+    }
+    return {
+      primary: {
+        html: `${ICONS.sparkle} ${frame.removed ? '重新去背' : '去背'}這一幀（${frameLabel(frame)}）`,
+        action: () => runRemoval([frame])
+      },
+      secondary: missing.length ? runAll : toExport
+    };
+  }
+
+  const rerunAll = { html: `${ICONS.retry} 用目前設定重新去背`, action: () => runRemoval(kept) };
   if (missing.length === kept.length) {
     return { primary: { html: `${ICONS.sparkle} 開始去背（${kept.length} 幀）`, action: () => runRemoval(missing) } };
   }
   if (missing.length > 0) {
     return {
       primary: { html: `${ICONS.sparkle} 去背剩下的 ${missing.length} 幀`, action: () => runRemoval(missing) },
-      secondary: () => runRemoval(kept)
+      secondary: rerunAll
     };
   }
   return {
     primary: { html: `下一步：導出 ${ICONS.arrow}`, action: () => setMode('export') },
-    secondary: () => runRemoval(kept)
+    secondary: rerunAll
   };
 }
+
+const removalScope = () => document.querySelector('input[name="remove-scope"]:checked')?.value || 'kept';
 
 let removePrimaryAction = null;
 let removeSecondaryAction = null;
@@ -350,6 +414,7 @@ function renderRemovePanel() {
   const frame = currentFrame();
   const kept = file.isStatic ? state.frames : keptFrames();
   const processed = kept.filter(f => f.removed);
+  const failed = kept.filter(f => f.failed);
   const editedCount = kept.filter(f => f.edited).length;
 
   // Status row
@@ -360,9 +425,23 @@ function renderRemovePanel() {
     status.classList.add('is-running');
     status.innerHTML = `${ICONS.spin}<span>去背中，已完成 ${removal.done} / ${removal.total} ${file.isStatic ? '' : '幀'}</span>`;
   } else if (removal.error) {
+    // The card on the stage explains model problems, so the row stays short for those
+    const explainedOnStage = ['model_download_failed', 'unknown_model', 'model_load_failed', 'rembg_missing'].includes(removal.error.code);
     status.classList.add('is-error');
-    status.innerHTML = `${ICONS.alert}<span>去背中斷</span><span class="status-detail"></span>`;
-    status.querySelector('.status-detail').textContent = `${removal.error}${processed.length ? `（已完成的 ${processed.length} 幀會保留）` : ''}`;
+    status.innerHTML = `${ICONS.alert}<span>去背中斷</span><span class="status-extra"></span><span class="status-detail"></span>`;
+    status.querySelector('.status-extra').textContent = file.isStatic
+      ? ''
+      : `已完成 ${processed.length} / ${kept.length} 幀`;
+    status.querySelector('.status-detail').textContent = explainedOnStage ? '' : removal.error.message;
+  } else if (failed.length) {
+    // The backend keeps the original image for frames it cannot process
+    status.classList.add('is-error');
+    status.innerHTML = `${ICONS.alertTriangle}<span>${failed.length} ${file.isStatic ? '張' : '幀'}去背失敗，已保留原圖</span>
+      <span class="status-detail"></span>
+      <button type="button" class="btn btn-danger-outline btn-sm status-action" id="btn-retry-failed">${ICONS.retry} 重試失敗的 ${failed.length} ${file.isStatic ? '張' : '幀'}</button>`;
+    status.querySelector('.status-detail').textContent = file.isStatic
+      ? (failed[0].failureMessage || '')
+      : `其餘 ${processed.length} 幀已完成。失敗的幀在時間軸上標成紅色。`;
   } else if (processed.length && processed.length === kept.length) {
     status.classList.add('is-success');
     status.innerHTML = `${ICONS.check}<span>${file.isStatic ? '去背完成' : `已完成 ${processed.length} 幀去背`}</span>`;
@@ -376,6 +455,12 @@ function renderRemovePanel() {
   $('remove-settings').disabled = removal.running;
   $('processing-note').hidden = !removal.running;
   $('model-hint').textContent = MODEL_HINTS[$('rembg-model').value] || '';
+
+  $('scope-section').hidden = file.isStatic;
+  if (!file.isStatic) {
+    $('scope-kept-label').textContent = `已保留的 ${kept.length} 幀`;
+    $('scope-current-label').textContent = `只處理目前這一幀（${frameLabel(frame)}）`;
+  }
 
   // Touch-up for the current frame
   const canTouchUp = !removal.running && !!frame.removed && !frame.waiting;
@@ -392,8 +477,11 @@ function renderRemovePanel() {
   primary.innerHTML = plan.primary.html;
   primary.disabled = !!plan.primary.disabled;
   removePrimaryAction = plan.primary.action || null;
-  $('btn-remove-secondary').hidden = !plan.secondary;
-  removeSecondaryAction = plan.secondary || null;
+
+  const secondary = $('btn-remove-secondary');
+  secondary.hidden = !plan.secondary;
+  if (plan.secondary) secondary.innerHTML = plan.secondary.html;
+  removeSecondaryAction = plan.secondary ? plan.secondary.action : null;
 }
 
 function selectedExportTypes() {
@@ -408,9 +496,15 @@ function renderExportPanel() {
 
   const kept = keptFrames();
   const processed = kept.filter(f => f.removed).length;
+  const failed = kept.filter(f => f.failed && !f.removed).length;
+  const unprocessed = kept.length - processed;
   const mixed = $('export-mixed-note');
-  mixed.hidden = !(processed > 0 && processed < kept.length);
-  if (!mixed.hidden) mixed.textContent = `有 ${kept.length - processed} 幀還沒去背，導出時會使用原圖。`;
+  mixed.hidden = !(processed > 0 && unprocessed > 0);
+  if (!mixed.hidden) {
+    mixed.textContent = failed
+      ? `有 ${unprocessed} 幀沒有去背（其中 ${failed} 幀失敗），導出時會使用原圖。`
+      : `有 ${unprocessed} 幀還沒去背，導出時會使用原圖。`;
+  }
 
   const fileCount = types.length + (types.includes('spritesheet') ? 1 : 0);
   const btn = $('btn-export');
@@ -485,6 +579,7 @@ function updateTimeline() {
     el.classList.toggle('is-current', pos === state.current);
     el.classList.toggle('is-skipped', !frame.keep);
     el.classList.toggle('is-edited', frame.edited && mode !== 'split');
+    el.classList.toggle('is-failed', frame.failed && mode !== 'split');
     el.classList.toggle('is-waiting', frame.waiting && !processing);
 
     const img = el.querySelector('img');
@@ -499,6 +594,11 @@ function updateTimeline() {
     let dot = imgBox.querySelector('.tl-dot');
     if (frame.edited && !dot) imgBox.insertAdjacentHTML('beforeend', '<span class="tl-dot"></span>');
     if (!frame.edited && dot) dot.remove();
+
+    const showFail = frame.failed && mode !== 'split';
+    let fail = imgBox.querySelector('.tl-fail');
+    if (showFail && !fail) imgBox.insertAdjacentHTML('beforeend', '<span class="tl-fail">!</span>');
+    if (!showFail && fail) fail.remove();
   });
 
   const current = currentFrame();
@@ -767,6 +867,8 @@ function loadDecomposed(data) {
       removedAuto: null,   // last AI result, kept so a hand edit can be restored
       removedModel: '',
       edited: false,
+      failed: false,       // the backend could not remove this frame's background
+      failureMessage: '',
       waiting: false,
       el: null
     };
@@ -911,7 +1013,7 @@ async function runRemoval(targets) {
   const settings = readRemovalSettings();
   stopPlayback();
   targets.forEach(f => { f.waiting = true; });
-  Object.assign(state.removal, { running: true, done: 0, total: targets.length, processingPos: -1, model: settings.model, error: null });
+  Object.assign(state.removal, { running: true, done: 0, total: targets.length, processingPos: -1, model: settings.model, error: null, lastTargets: targets });
   renderAll();
 
   try {
@@ -924,14 +1026,24 @@ async function runRemoval(targets) {
         frames: [{ index: frame.index, duration: frame.duration, image: frame.image }],
         ...settings
       });
-      if (!res.ok) throw new Error(await errorDetail(res, '去背失敗'));
+      if (!res.ok) {
+        const info = await requestError(res, '去背失敗');
+        const error = new Error(info.message);
+        error.info = info;
+        throw error;
+      }
 
       const result = (await res.json()).frames[0];
-      Object.assign(frame, { removed: result.image, removedAuto: result.image, removedModel: settings.model, edited: false, waiting: false });
+      if (result.failed) {
+        // The backend fell back to the original image for this frame
+        Object.assign(frame, { failed: true, failureMessage: result.error || '', waiting: false });
+      } else {
+        Object.assign(frame, { removed: result.image, removedAuto: result.image, removedModel: settings.model, edited: false, failed: false, waiting: false });
+      }
       state.removal.done++;
     }
   } catch (err) {
-    state.removal.error = err.message;
+    state.removal.error = err.info || { code: 'error', message: err.message };
   } finally {
     targets.forEach(f => { f.waiting = false; });
     state.removal.running = false;
@@ -950,6 +1062,28 @@ function initRemovePanel() {
 
   $('btn-remove-primary').addEventListener('click', () => { if (removePrimaryAction) removePrimaryAction(); });
   $('btn-remove-secondary').addEventListener('click', () => { if (removeSecondaryAction) removeSecondaryAction(); });
+
+  document.querySelectorAll('input[name="remove-scope"]').forEach(radio => {
+    radio.addEventListener('change', () => renderInspector());
+  });
+
+  const retryLastRun = () => {
+    const targets = (state.removal.lastTargets || []).filter(f => state.frames.includes(f));
+    state.removal.error = null;
+    if (targets.length) runRemoval(targets);
+    else renderAll();
+  };
+  $('btn-error-retry').addEventListener('click', retryLastRun);
+  $('btn-error-fallback').addEventListener('click', () => {
+    $('rembg-model').value = 'u2net';
+    retryLastRun();
+  });
+
+  $('remove-status').addEventListener('click', (e) => {
+    if (!e.target.closest('#btn-retry-failed')) return;
+    const failed = (state.file.isStatic ? state.frames : keptFrames()).filter(f => f.failed);
+    if (failed.length) runRemoval(failed);
+  });
 
   $('btn-touchup-export').addEventListener('click', () => {
     const frame = currentFrame();
@@ -1031,7 +1165,7 @@ async function runExport() {
 
   try {
     const res = await postJson('/api/synthesize', payload);
-    if (!res.ok) throw new Error(await errorDetail(res, '導出失敗'));
+    if (!res.ok) throw new Error((await requestError(res, '導出失敗')).message);
     const data = await res.json();
 
     const base = state.file.baseName;

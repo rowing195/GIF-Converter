@@ -40,6 +40,31 @@ def get_rembg_session(model_name: str = "u2net"):
     return rembg_sessions[model_name]
 
 
+def u2net_home() -> str:
+    """Where rembg keeps its model files (mirrors rembg/sessions/base.py)."""
+    return os.path.expanduser(
+        os.getenv("U2NET_HOME", os.path.join(os.getenv("XDG_DATA_HOME", "~"), ".u2net"))
+    )
+
+
+# Substrings that show up when a model download cannot reach the network
+NETWORK_ERROR_HINTS = (
+    "connection", "network", "timed out", "timeout", "unreachable", "resolve",
+    "temporary failure", "max retries", "urlopen", "getaddrinfo", "ssl",
+)
+
+
+def classify_model_error(exc: Exception, model_name: str) -> str:
+    """Tell the frontend why a model could not be loaded, so it can offer a way out."""
+    text = f"{type(exc).__name__}: {exc}".lower()
+    if "no session class found" in text:
+        return "unknown_model"
+    already_downloaded = os.path.exists(os.path.join(u2net_home(), f"{model_name}.onnx"))
+    if not already_downloaded and any(hint in text for hint in NETWORK_ERROR_HINTS):
+        return "model_download_failed"
+    return "model_load_failed"
+
+
 class FrameItem(BaseModel):
     index: int
     duration: int  # milliseconds
@@ -139,10 +164,24 @@ async def decompose_gif(file: UploadFile = File(...)):
 async def u2net_rembg(req: RembgRequest):
     try:
         from rembg import remove
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={
+            "code": "rembg_missing",
+            "model": req.model,
+            "message": f"rembg module could not be loaded: {str(e)}"
+        })
+
+    try:
         session = get_rembg_session(req.model)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"rembg module or u2net model loading failed: {str(e)}")
-    
+        raise HTTPException(status_code=500, detail={
+            "code": classify_model_error(e, req.model),
+            "model": req.model,
+            "message": str(e)
+        })
+
+    failed_count = 0
+
     processed_frames = []
     
     for frame in req.frames:
@@ -173,18 +212,22 @@ async def u2net_rembg(req: RembgRequest):
             processed_frames.append({
                 "index": frame.index,
                 "duration": frame.duration,
-                "image": processed_b64
+                "image": processed_b64,
+                "failed": False
             })
         except Exception as e:
             print(f"Error processing frame {frame.index}: {e}")
-            # Fallback to original image on error
+            # Fall back to the original image, but say so instead of failing silently
+            failed_count += 1
             processed_frames.append({
                 "index": frame.index,
                 "duration": frame.duration,
-                "image": frame.image
+                "image": frame.image,
+                "failed": True,
+                "error": str(e)
             })
-            
-    return {"frames": processed_frames}
+
+    return {"frames": processed_frames, "failed_count": failed_count}
 
 
 @app.post("/api/synthesize")

@@ -5,6 +5,7 @@ uvicorn==0.51.0
 python-multipart==0.0.32
 pillow==12.3.0
 numpy==2.4.6
+scipy==1.18.0  # Sprite Sheet 影格偵測（rembg 本來就會裝）
 
 # AI 去背（會連帶安裝 onnxruntime / scipy / scikit-image / pymatting）
 rembg==2.0.77

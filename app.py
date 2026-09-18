@@ -4,10 +4,12 @@ import sys
 import math
 import base64
 from typing import List, Optional
+import numpy as np
+from scipy import ndimage
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from PIL import Image, ImageSequence
 
 # When frozen by PyInstaller the bundled files live under sys._MEIPASS, not the CWD
@@ -101,6 +103,20 @@ class SynthesizeRequest(BaseModel):
     gif_options: GifOptions = GifOptions()
     webp_options: WebpOptions = WebpOptions()
     spritesheet_options: SpriteSheetOptions = SpriteSheetOptions()
+
+class SheetRequest(BaseModel):
+    image: str  # Data URL or base64 string
+
+class Panel(BaseModel):
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    w: int = Field(gt=0)
+    h: int = Field(gt=0)
+
+class SliceRequest(BaseModel):
+    image: str
+    panels: List[Panel]
+    duration: int = Field(default=125, gt=0)  # milliseconds per frame
 
 
 def base64_to_pil(data_url: str) -> Image.Image:
@@ -357,6 +373,106 @@ async def synthesize(req: SynthesizeRequest):
         }
 
     return result
+
+
+def sheet_background(rgba: np.ndarray) -> Optional[tuple]:
+    """None when the sheet already has transparency, else its median border colour."""
+    if (rgba[..., 3] < 128).mean() > 0.01:
+        return None
+    border = np.concatenate([rgba[0], rgba[-1], rgba[:, 0], rgba[:, -1]])[:, :3]
+    return tuple(int(v) for v in np.median(border, axis=0))
+
+
+def detect_panels(img: Image.Image) -> List[dict]:
+    """Find the frames on an irregular sprite sheet, as boxes in no particular order."""
+    rgba = np.asarray(img.convert("RGBA"))
+    height, width = rgba.shape[:2]
+    bg = sheet_background(rgba)
+    if bg is None:
+        foreground = rgba[..., 3] > 16
+    else:
+        foreground = np.abs(rgba[..., :3].astype(np.int16) - np.array(bg)).max(axis=2) > 40
+
+    labels, _ = ndimage.label(foreground, structure=np.ones((3, 3), dtype=bool))
+    min_side = max(3, min(width, height) // 100)
+    boxes = [
+        [xs.start, ys.start, xs.stop, ys.stop]
+        for ys, xs in ndimage.find_objects(labels)
+        if xs.stop - xs.start >= min_side and ys.stop - ys.start >= min_side
+    ]
+    if not boxes:
+        return []
+
+    def area(b):
+        return (b[2] - b[0]) * (b[3] - b[1])
+
+    def gap(a, b):
+        return max(b[0] - a[2], a[0] - b[2], b[1] - a[3], a[1] - b[3], 0)
+
+    def union(a, b):
+        return [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+
+    def overlap(a, b):
+        return max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(0, min(a[3], b[3]) - max(a[1], b[1]))
+
+    largest = max(area(b) for b in boxes)
+    frames = [b for b in boxes if area(b) >= 0.15 * largest]
+    # Small detached pieces (a sweat drop, a floating "Z") belong to the nearest frame;
+    # anything further away is noise
+    for piece in (b for b in boxes if area(b) < 0.15 * largest):
+        nearest = min(range(len(frames)), key=lambda i: gap(frames[i], piece))
+        f = frames[nearest]
+        if gap(f, piece) <= 0.25 * max(f[2] - f[0], f[3] - f[1]):
+            frames[nearest] = union(f, piece)
+
+    # Merge boxes that mostly overlap, e.g. a frame that grew into its neighbour's piece
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(frames)):
+            for j in range(i + 1, len(frames)):
+                if overlap(frames[i], frames[j]) >= 0.5 * min(area(frames[i]), area(frames[j])):
+                    frames[i] = union(frames[i], frames.pop(j))
+                    merged = True
+                    break
+            if merged:
+                break
+
+    return [{"x": b[0], "y": b[1], "w": b[2] - b[0], "h": b[3] - b[1]} for b in frames]
+
+
+@app.post("/api/detect-panels")
+async def detect_panels_endpoint(req: SheetRequest):
+    return {"panels": detect_panels(base64_to_pil(req.image))}
+
+
+@app.post("/api/slice-sheet")
+async def slice_sheet(req: SliceRequest):
+    if not req.panels:
+        raise HTTPException(status_code=400, detail="No frames to slice.")
+
+    sheet = base64_to_pil(req.image)
+    bg = sheet_background(np.asarray(sheet))
+    fill = (0, 0, 0, 0) if bg is None else (*bg, 255)
+    crops = [sheet.crop((p.x, p.y, p.x + p.w, p.y + p.h)) for p in req.panels]
+
+    # Every frame shares the largest crop's size; smaller crops sit bottom-centre so
+    # characters standing on the panel floor stay on the same line
+    canvas_w = max(c.width for c in crops)
+    canvas_h = max(c.height for c in crops)
+    frames = []
+    for i, crop in enumerate(crops):
+        canvas = Image.new("RGBA", (canvas_w, canvas_h), fill)
+        canvas.paste(crop, ((canvas_w - crop.width) // 2, canvas_h - crop.height))
+        frames.append({
+            "index": i,
+            "duration": req.duration,
+            "image": pil_to_base64(canvas, format="PNG"),
+            "width": canvas_w,
+            "height": canvas_h
+        })
+
+    return {"width": canvas_w, "height": canvas_h, "frames": frames}
 
 # Serve static files for frontend UI
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

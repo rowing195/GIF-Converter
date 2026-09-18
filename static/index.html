@@ -24,6 +24,7 @@
       </div>
 
       <nav class="segmented mode-switch" id="mode-switch" aria-label="模式">
+        <button type="button" data-mode="slice">切割</button>
         <button type="button" data-mode="split">拆解</button>
         <button type="button" data-mode="remove">去背</button>
         <button type="button" data-mode="export">導出</button>
@@ -97,6 +98,22 @@
           </div>
         </section>
 
+        <!-- Sprite sheet with its frame boxes: slice mode -->
+        <section class="viewer" id="slice-view" hidden>
+          <div class="viewer-scroll" id="slice-scroll">
+            <div class="frame-box checker" id="slice-box">
+              <img id="slice-img" alt="Sprite Sheet" draggable="false">
+              <div class="slice-layer" id="slice-layer"></div>
+            </div>
+          </div>
+          <div class="stage-chips" id="slice-chips"></div>
+          <div class="segmented segmented-sm zoom-control" id="slice-zoom">
+            <button type="button" data-zoom="fit">適合</button>
+            <button type="button" data-zoom="1">1×</button>
+            <button type="button" data-zoom="2">2×</button>
+          </div>
+        </section>
+
         <!-- Export preview -->
         <section class="export-preview" id="export-preview" hidden>
           <div class="stage-chips" id="export-chips"></div>
@@ -133,6 +150,7 @@
               <div class="section-label">靜態圖</div>
               <div class="mono">.png · .jpg · .bmp</div>
               <p class="hint">直接進入去背模式，完成後下載透明背景 PNG。</p>
+              <p class="hint">Sprite Sheet 也從這裡開啟，進入後可以切成逐幀動畫。</p>
             </div>
             <div class="section section-last">
               <div class="section-label">使用前須知</div>
@@ -140,6 +158,54 @@
               <p class="hint">影格越多、尺寸越大，去背越久。</p>
               <p class="hint">全程在這台電腦處理，圖片不會上傳到任何伺服器。</p>
             </div>
+          </div>
+        </div>
+
+        <!-- Slice -->
+        <div class="panel" data-panel="slice" hidden>
+          <div class="panel-body">
+            <div class="section">
+              <div class="section-label">切割方式</div>
+              <div class="segmented segmented-sm slice-method" id="slice-method">
+                <button type="button" data-method="auto">自動偵測</button>
+                <button type="button" data-method="grid">規則網格</button>
+              </div>
+              <div class="slice-method-opts" id="slice-auto-opts">
+                <p class="hint" id="slice-auto-hint"></p>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-slice-reset">還原成偵測結果</button>
+              </div>
+              <div class="slice-grid-opts" id="slice-grid-opts">
+                <span class="muted">列數</span>
+                <input type="number" class="input mono" id="slice-rows" min="1" max="50">
+                <span class="muted">欄數</span>
+                <input type="number" class="input mono" id="slice-cols" min="1" max="50">
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-label">影格框</div>
+              <div id="slice-summary"></div>
+              <div class="slice-selected" id="slice-selected">
+                <dl class="kv">
+                  <dt>選取</dt><dd class="mono accent" id="slice-sel-no"></dd>
+                  <dt>位置</dt><dd class="mono" id="slice-sel-pos"></dd>
+                  <dt>尺寸</dt><dd class="mono" id="slice-sel-size"></dd>
+                </dl>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-slice-delete">刪除這個框</button>
+              </div>
+              <p class="hint">拖曳框可移動，拖曳角落可調整大小，在空白處拖曳可新增框，選取後按 Delete 刪除。編號依位置由上而下、由左而右排列。</p>
+            </div>
+            <div class="section">
+              <div class="section-label">動畫</div>
+              <label class="switch-row">
+                <span>影格率 (FPS)</span>
+                <input type="number" class="input mono input-narrow" id="slice-fps" min="1" max="60" value="8">
+              </label>
+              <p class="hint">每一格會放在同一尺寸（最大那格）的畫布上，靠底部置中。切完可以直接導出，也可以先到「去背」逐幀去背。</p>
+            </div>
+          </div>
+          <div class="panel-footer">
+            <button type="button" class="btn btn-primary" id="btn-slice"></button>
+            <p class="footer-note" id="slice-note" hidden></p>
           </div>
         </div>
 
@@ -189,6 +255,11 @@
         <div class="panel" data-panel="remove" hidden>
           <div class="status-row" id="remove-status" hidden></div>
           <div class="panel-body">
+            <div class="section" id="sheet-offer" hidden>
+              <div class="section-label">Sprite Sheet</div>
+              <p class="hint" id="sheet-offer-text"></p>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-enter-slice">切割成動畫影格</button>
+            </div>
             <fieldset class="settings" id="remove-settings">
               <div class="section">
                 <div class="section-label">去背模型</div>
@@ -368,5 +439,6 @@
 
   <input type="file" id="file-input" accept="image/gif, image/webp, image/png, image/jpeg, image/bmp" hidden>
   <script src="/static/script.js?v=workspace"></script>
+  <script src="/static/slice.js?v=workspace"></script>
 </body>
 </html>

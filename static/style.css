@@ -311,6 +311,47 @@ button { cursor: pointer; }
 .progress-track { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .progress-fill { height: 100%; width: 0; border-radius: 999px; background: var(--accent); transition: width 0.25s ease; }
 
+/* Slice view: frame boxes drawn over the sprite sheet */
+.slice-layer { position: absolute; inset: 0; cursor: crosshair; touch-action: none; user-select: none; }
+
+.slice-rect {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  background: rgba(232, 163, 61, 0.08);
+  cursor: move;
+}
+
+.slice-rect.is-selected { z-index: 1; background: rgba(232, 163, 61, 0.2); box-shadow: 0 0 0 1px var(--on-accent); }
+.slice-rect.is-draft { border-style: dashed; pointer-events: none; }
+
+.slice-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0 5px;
+  border-bottom-right-radius: 3px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  pointer-events: none;
+}
+
+.slice-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  background: var(--text);
+}
+
+.slice-handle[data-handle="nw"] { top: -6px; left: -6px; cursor: nwse-resize; }
+.slice-handle[data-handle="ne"] { top: -6px; right: -6px; cursor: nesw-resize; }
+.slice-handle[data-handle="sw"] { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.slice-handle[data-handle="se"] { bottom: -6px; right: -6px; cursor: nwse-resize; }
+
 /* Export preview */
 .export-preview {
   position: absolute;
@@ -531,6 +572,20 @@ input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
 }
 
 .format-options.is-off { display: none; }
+
+/* Slice panel */
+.slice-method button { flex: 1; }
+.slice-method-opts, .slice-selected { display: flex; flex-direction: column; gap: 10px; }
+
+.slice-grid-opts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 13px;
+}
+
+.input-narrow { width: 80px; }
 .format-hint { grid-column: 1 / -1; }
 
 /* ---------- Timeline ---------- */

@@ -74,10 +74,17 @@
 
 **動圖（.gif / 動態 .webp）** 走完整流程：拆解挑影格 → AI 去背 → 導出 GIF、動態 WebP 或 Sprite Sheet（可複選）。
 **靜態圖（.png / .jpg / .bmp）** 直接進入去背模式，不顯示時間軸，完成後下載透明背景 PNG。
+**Sprite Sheet** 也當靜態圖開啟，在去背模式按「切割成動畫影格」，切成逐幀後就跟動圖走同一套流程。
 
 ---
 
 ## 🎨 Features
+
+- ✂️ **切割模式**（Sprite Sheet）
+  - 開啟靜態圖時會自動偵測格子；偵測到 4 格以上會提示這可能是 Sprite Sheet。
+  - **自動偵測**適用格子大小不一的 AI Sprite Sheet（有底色間隔的 Panel，或透明背景上的角色），角色旁分離的小物件（汗滴、Zzz）會歸到最近的那一格；**規則網格**則依列數 × 欄數等分。
+  - 框可以直接在圖上拖曳移動、拖曳角落調整大小、在空白處拖曳新增，選取後按 <kbd>Delete</kbd> 刪除；編號依位置由上而下、由左而右排列。
+  - 設定影格率後一鍵切割：所有格子放進同一尺寸（最大那格）的畫布、靠底部置中，空白處補上原圖底色（透明圖則保持透明），接著直接進入導出模式。
 
 - 🎬 **拆解模式**
   - 解析 GIF / WebP，時間軸依每幀 `duration`（ms）等比例排列，停頓較久的影格會比較寬。
@@ -120,7 +127,8 @@ gif_converter/
 └── static/
     ├── index.html             # 嚮導式 Modern Web 介面
     ├── style.css              # 現代暗黑科技風格 CSS
-    └── script.js              # 前端控制邏輯與 API 溝通
+    ├── script.js              # 前端控制邏輯與 API 溝通
+    └── slice.js               # Sprite Sheet 切割模式
 ```
 
 ---
@@ -193,6 +201,8 @@ build_exe.bat
 | :--- | :--- | :--- |
 | `/api/decompose-gif` | `POST` | 上傳動圖或靜態圖，回傳逐幀 base64 數據、尺寸、每幀 `duration` (ms) 與 `is_animated` |
 | `/api/u2net-rembg` | `POST` | 傳送影格至指定 AI 模型，回傳去背後的透明 PNG 影格。單幀失敗時會沿用原圖並標記 `failed`，同時回傳 `failed_count` |
+| `/api/detect-panels` | `POST` | 傳入 Sprite Sheet 圖片，回傳偵測到的影格框 `{x, y, w, h}`（未排序） |
+| `/api/slice-sheet` | `POST` | 依影格框切割 Sprite Sheet，統一畫布尺寸並靠底部置中，回傳格式與 `/api/decompose-gif` 的 `frames` 相同 |
 | `/api/synthesize` | `POST` | 依 `export_types` 合成導出 GIF、動態 WebP 與 Sprite Sheet 精靈圖 |
 
 `/api/u2net-rembg` 模型載入失敗時，`detail` 會回傳 `{code, model, message}`，`code` 為下列其中一種：

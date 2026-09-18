@@ -33,7 +33,7 @@ const state = {
   file: null,         // { name, baseName, width, height, isStatic }
   frames: [],         // see loadDecomposed()
   current: 0,         // position in state.frames
-  mode: 'upload',     // upload | split | remove | export
+  mode: 'upload',     // upload | slice | split | remove | export
   view: 'removed',    // remove mode: which image the stage shows
   zoom: 'fit',
   timelineScale: 0.64, // px per ms on the timeline
@@ -44,7 +44,12 @@ const state = {
   exportPos: 0,
   ssColsTouched: false,
   exporting: false,
-  exportResult: null  // { ok, message }
+  exportResult: null, // { ok, message }
+  sheetGuess: null,   // frame boxes found on a still image; null until checked
+  sheet: null,        // sprite sheet being sliced, see enterSlice()
+  sliceZoom: 'fit',
+  slicing: false,
+  sliceError: ''
 };
 
 const $ = (id) => document.getElementById(id);
@@ -54,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initDragAndDrop();
   initModeSwitch();
   initStageControls();
+  initSlicePanel();
   initSplitPanel();
   initRemovePanel();
   initExportPanel();
@@ -142,19 +148,18 @@ function renderShell() {
   const { file, mode, removal } = state;
   app.classList.toggle('has-file', !!file);
   app.classList.toggle('is-static', !!file && file.isStatic);
-  ['upload', 'split', 'remove', 'export'].forEach(m => app.classList.toggle(`mode-${m}`, mode === m));
+  ['upload', 'slice', 'split', 'remove', 'export'].forEach(m => app.classList.toggle(`mode-${m}`, mode === m));
 
   $('file-name').textContent = file ? file.name : '尚未載入檔案';
-  $('file-meta').textContent = file
-    ? (file.isStatic
-      ? `${file.width}×${file.height} · 靜態圖片`
-      : `${file.width}×${file.height} · ${state.frames.length} 幀 · ${formatSeconds(totalDuration(state.frames))}`)
-    : '';
+  $('file-meta').textContent = !file ? ''
+    : mode === 'slice' ? `${state.sheet.width}×${state.sheet.height} · Sprite Sheet`
+    : file.isStatic ? `${file.width}×${file.height} · 靜態圖片`
+    : `${file.width}×${file.height} · ${state.frames.length} 幀 · ${formatSeconds(totalDuration(state.frames))}`;
 
   $('mode-switch').querySelectorAll('button').forEach(btn => {
     const m = btn.dataset.mode;
     btn.classList.toggle('is-active', mode === m);
-    btn.hidden = !!file && file.isStatic && m !== 'remove';
+    btn.hidden = m === 'slice' ? !state.sheet : !!file && file.isStatic && m !== 'remove';
     btn.disabled = !file || (removal.running && m !== 'remove') || (m === 'export' && keptFrames().length === 0);
   });
 
@@ -167,9 +172,11 @@ function renderShell() {
 function renderStage() {
   const { mode } = state;
   $('upload-card').hidden = mode !== 'upload';
+  $('slice-view').hidden = mode !== 'slice';
   $('viewer').hidden = !(mode === 'split' || mode === 'remove');
   $('export-preview').hidden = mode !== 'export';
 
+  if (mode === 'slice') renderSliceView();
   if (mode === 'split' || mode === 'remove') renderViewer();
   if (mode === 'export') renderExportPreview();
 }
@@ -331,6 +338,7 @@ function renderSheetPreview() {
 function renderInspector() {
   const panelMode = state.mode;
   document.querySelectorAll('.panel').forEach(p => { p.hidden = p.dataset.panel !== panelMode; });
+  if (panelMode === 'slice') renderSlicePanel();
   if (panelMode === 'split') renderSplitPanel();
   if (panelMode === 'remove') renderRemovePanel();
   if (panelMode === 'export') renderExportPanel();
@@ -451,6 +459,9 @@ function renderRemovePanel() {
   } else {
     status.hidden = true;
   }
+
+  $('sheet-offer').hidden = !file.isStatic;
+  if (file.isStatic) renderSheetOffer();
 
   $('remove-settings').disabled = removal.running;
   $('processing-note').hidden = !removal.running;
@@ -762,7 +773,7 @@ function scheduleNextFrame() {
 function setMode(mode) {
   const { file, removal } = state;
   if (!file || state.mode === mode) return;
-  if (file.isStatic && mode !== 'remove') return;
+  if (mode === 'slice' ? !state.sheet : file.isStatic && mode !== 'remove') return;
   if (removal.running && mode !== 'remove') return;
   if (mode === 'export' && keptFrames().length === 0) return;
 
@@ -808,9 +819,17 @@ function initStageControls() {
 
 function initKeyboard() {
   document.addEventListener('keydown', (e) => {
-    if (!state.file || state.file.isStatic || state.mode === 'upload' || state.mode === 'export') return;
+    if (!state.file || state.mode === 'upload' || state.mode === 'export') return;
     const target = e.target instanceof Element ? e.target : null;
     if (target && target.closest('input, select, textarea')) return;
+    if (state.mode === 'slice') {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        deleteSelectedPanel();
+      }
+      return;
+    }
+    if (state.file.isStatic) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
       stopPlayback();
@@ -900,9 +919,9 @@ async function openFile(file) {
   }
 }
 
-function loadDecomposed(data) {
+function createFrames(list) {
   let start = 0;
-  state.frames = data.frames.map(f => {
+  return list.map(f => {
     const frame = {
       index: f.index,
       duration: f.duration,
@@ -923,7 +942,10 @@ function loadDecomposed(data) {
     start += f.duration;
     return frame;
   });
+}
 
+function loadDecomposed(data) {
+  state.frames = createFrames(data.frames);
   state.file = {
     name: data.filename,
     baseName: data.filename.replace(/\.[^/.]+$/, ''),
@@ -937,6 +959,7 @@ function loadDecomposed(data) {
 
   buildTimeline();
   renderAll();
+  if (state.file.isStatic) guessSheet();
 }
 
 // ---------- Drag & drop ----------

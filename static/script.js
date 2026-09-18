@@ -33,7 +33,7 @@ const state = {
   file: null,         // { name, baseName, width, height, isStatic }
   frames: [],         // see loadDecomposed()
   current: 0,         // position in state.frames
-  mode: 'upload',     // upload | slice | split | remove | export
+  mode: 'upload',     // upload | slice | split | remove | align | export
   view: 'removed',    // remove mode: which image the stage shows
   zoom: 'fit',
   timelineScale: 0.64, // px per ms on the timeline
@@ -49,7 +49,8 @@ const state = {
   sheet: null,        // sprite sheet being sliced, see enterSlice()
   sliceZoom: 'fit',
   slicing: false,
-  sliceError: ''
+  sliceError: '',
+  align: null         // alignment settings once align mode has been opened, see defaultAlignSettings()
 };
 
 const $ = (id) => document.getElementById(id);
@@ -60,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initModeSwitch();
   initStageControls();
   initSlicePanel();
+  initAlignPanel();
   initSplitPanel();
   initRemovePanel();
   initExportPanel();
@@ -75,7 +77,11 @@ const keptFrames = () => state.frames.filter(f => f.keep);
 const currentFrame = () => state.frames[state.current];
 const pad2 = (n) => String(n).padStart(2, '0');
 const frameLabel = (f) => `#${pad2(f.index)}`;
-const outputImage = (f) => f.removed || f.image;
+const sourceImage = (f) => f.removed || f.image;
+// The aligned render only counts while it was made from the frame's current image
+const alignedOutput = (f) => (state.align && state.align.enabled && f.aligned && f.aligned.from === sourceImage(f) ? f.aligned : null);
+const outputImage = (f) => (alignedOutput(f) ? f.aligned.image : sourceImage(f));
+const outputSize = (f) => alignedOutput(f) || f;
 const totalDuration = (frames) => frames.reduce((sum, f) => sum + f.duration, 0);
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -148,18 +154,20 @@ function renderShell() {
   const { file, mode, removal } = state;
   app.classList.toggle('has-file', !!file);
   app.classList.toggle('is-static', !!file && file.isStatic);
-  ['upload', 'slice', 'split', 'remove', 'export'].forEach(m => app.classList.toggle(`mode-${m}`, mode === m));
+  ['upload', 'slice', 'split', 'remove', 'align', 'export'].forEach(m => app.classList.toggle(`mode-${m}`, mode === m));
 
   $('file-name').textContent = file ? file.name : '尚未載入檔案';
   $('file-meta').textContent = !file ? ''
     : mode === 'slice' ? `${state.sheet.width}×${state.sheet.height} · Sprite Sheet`
     : file.isStatic ? `${file.width}×${file.height} · 靜態圖片`
-    : `${file.width}×${file.height} · ${state.frames.length} 幀 · ${formatSeconds(totalDuration(state.frames))}`;
+    : `${outputSize(state.frames[0]).width}×${outputSize(state.frames[0]).height} · ${state.frames.length} 幀 · ${formatSeconds(totalDuration(state.frames))}`;
 
   $('mode-switch').querySelectorAll('button').forEach(btn => {
     const m = btn.dataset.mode;
     btn.classList.toggle('is-active', mode === m);
-    btn.hidden = m === 'slice' ? !state.sheet : !!file && file.isStatic && m !== 'remove';
+    btn.hidden = m === 'slice' ? !state.sheet
+      : m === 'align' ? !state.sheet || file.isStatic
+      : !!file && file.isStatic && m !== 'remove';
     btn.disabled = !file || (removal.running && m !== 'remove') || (m === 'export' && keptFrames().length === 0);
   });
 
@@ -174,10 +182,12 @@ function renderStage() {
   $('upload-card').hidden = mode !== 'upload';
   $('slice-view').hidden = mode !== 'slice';
   $('viewer').hidden = !(mode === 'split' || mode === 'remove');
+  $('align-view').hidden = mode !== 'align';
   $('export-preview').hidden = mode !== 'export';
 
   if (mode === 'slice') renderSliceView();
   if (mode === 'split' || mode === 'remove') renderViewer();
+  if (mode === 'align') renderAlignView();
   if (mode === 'export') renderExportPreview();
 }
 
@@ -294,9 +304,10 @@ function renderExportAnimation() {
   const animImg = $('export-anim');
   const src = outputImage(frame);
   if (animImg.getAttribute('src') !== src) animImg.src = src;
-  const scale = Math.min(340 / frame.width, 340 / frame.height);
-  animImg.style.width = `${Math.round(frame.width * scale)}px`;
-  animImg.style.height = `${Math.round(frame.height * scale)}px`;
+  const { width, height } = outputSize(frame);
+  const scale = Math.min(340 / width, 340 / height);
+  animImg.style.width = `${Math.round(width * scale)}px`;
+  animImg.style.height = `${Math.round(height * scale)}px`;
   $('export-anim-box').classList.toggle('is-pixelated', scale >= 2);
 
   setChips($('export-chips'), [
@@ -316,7 +327,7 @@ function renderSheetPreview() {
   const cols = Math.max(1, parseInt($('ss-cols').value) || 1);
   const padding = Math.max(0, parseInt($('ss-padding').value) || 0);
   const rows = Math.ceil(kept.length / cols);
-  const { width: fw, height: fh } = kept[0];
+  const { width: fw, height: fh } = outputSize(kept[0]);
   const sheetW = cols * fw + (cols + 1) * padding;
   const sheetH = rows * fh + (rows + 1) * padding;
   $('sheet-size').textContent = `${cols} 欄 × ${rows} 列 · ${sheetW.toLocaleString()} × ${sheetH.toLocaleString()} px`;
@@ -341,6 +352,7 @@ function renderInspector() {
   if (panelMode === 'slice') renderSlicePanel();
   if (panelMode === 'split') renderSplitPanel();
   if (panelMode === 'remove') renderRemovePanel();
+  if (panelMode === 'align') renderAlignPanel();
   if (panelMode === 'export') renderExportPanel();
 }
 
@@ -519,9 +531,11 @@ function renderExportPanel() {
 
   const fileCount = types.length + (types.includes('spritesheet') ? 1 : 0);
   const btn = $('btn-export');
-  btn.disabled = state.exporting || types.length === 0 || kept.length === 0;
+  const aligning = !!(state.align && state.align.busy);
+  btn.disabled = state.exporting || aligning || types.length === 0 || kept.length === 0;
   $('export-label').textContent = state.exporting
     ? '正在產生檔案…'
+    : aligning ? '正在更新對齊…'
     : (types.length === 0 ? '請至少選擇一種格式' : `導出 ${types.length} 種格式`);
 
   const note = $('export-note');
@@ -594,7 +608,9 @@ function updateTimeline() {
     el.classList.toggle('is-waiting', frame.waiting && !processing);
 
     const img = el.querySelector('img');
-    const src = mode === 'split' || frame.waiting || !frame.keep ? frame.image : outputImage(frame);
+    const src = mode === 'split' || frame.waiting || !frame.keep ? frame.image
+      : mode === 'remove' ? sourceImage(frame)
+      : outputImage(frame);
     if (img.getAttribute('src') !== src) img.src = src;
 
     const imgBox = el.querySelector('.tl-img');
@@ -773,7 +789,9 @@ function scheduleNextFrame() {
 function setMode(mode) {
   const { file, removal } = state;
   if (!file || state.mode === mode) return;
-  if (mode === 'slice' ? !state.sheet : file.isStatic && mode !== 'remove') return;
+  if (mode === 'slice' ? !state.sheet
+    : mode === 'align' ? !state.sheet || file.isStatic
+    : file.isStatic && mode !== 'remove') return;
   if (removal.running && mode !== 'remove') return;
   if (mode === 'export' && keptFrames().length === 0) return;
 
@@ -787,9 +805,12 @@ function setMode(mode) {
     state.exportPos = 0;
   }
   if (mode === 'remove') state.view = 'removed';
+  if (mode === 'align' && !state.align) state.align = defaultAlignSettings();
 
   renderAll();
   if (mode === 'export') startPlayback();
+  // Frames may have been re-sliced or re-removed since the last alignment
+  if (mode === 'align' || (mode === 'export' && state.align && state.align.enabled)) refreshAlignment();
 }
 
 function initModeSwitch() {
@@ -937,6 +958,12 @@ function createFrames(list) {
       failed: false,       // the backend could not remove this frame's background
       failureMessage: '',
       waiting: false,
+      box: null,           // align mode: content box and background of the image in boxFrom
+      background: null,
+      boxFrom: '',
+      dx: 0,               // align mode: hand-dragged offset, in output pixels
+      dy: 0,
+      aligned: null,       // align mode: { image, width, height, from }
       el: null
     };
     start += f.duration;
@@ -1158,7 +1185,7 @@ function initRemovePanel() {
 
   $('btn-touchup-export').addEventListener('click', () => {
     const frame = currentFrame();
-    downloadDataUrl(outputImage(frame), `${state.file.baseName}_frame_${pad2(frame.index)}.png`);
+    downloadDataUrl(sourceImage(frame),`${state.file.baseName}_frame_${pad2(frame.index)}.png`);
   });
 
   $('touchup-file').addEventListener('change', (e) => {

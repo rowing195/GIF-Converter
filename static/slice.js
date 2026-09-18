@@ -173,6 +173,7 @@ function renderSlicePanel() {
   btn.innerHTML = state.slicing ? `${ICONS.spin} 正在切割…`
     : count === 0 ? '請先框出至少 1 格'
     : `${resliced ? '重新切割' : '切割'}成 ${count} 幀，前往導出 ${ICONS.arrow}`;
+  $('btn-slice-align').disabled = btn.disabled;
 
   const note = $('slice-note');
   note.hidden = !state.sliceError;
@@ -290,7 +291,8 @@ function initSliceEditing() {
 
 // ---------- Slicing ----------
 
-async function runSlice() {
+// next: the mode to open once the frames are cut ('export' or 'align')
+async function runSlice(next) {
   const sheet = state.sheet;
   if (state.slicing || !sheet.panels.length) return;
 
@@ -316,7 +318,7 @@ async function runSlice() {
     Object.assign(state.file, { width: data.width, height: data.height, isStatic: false });
     state.current = 0;
     buildTimeline();
-    setMode('export');
+    setMode(next);
   } catch (err) {
     state.sliceError = err.message;
   } finally {
@@ -351,6 +353,7 @@ function initSlicePanel() {
   });
 
   $('btn-slice-delete').addEventListener('click', deleteSelectedPanel);
-  $('btn-slice').addEventListener('click', runSlice);
+  $('btn-slice').addEventListener('click', () => runSlice('export'));
+  $('btn-slice-align').addEventListener('click', () => runSlice('align'));
   initSliceEditing();
 }

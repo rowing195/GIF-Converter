@@ -113,6 +113,9 @@ class Panel(BaseModel):
     w: int = Field(gt=0)
     h: int = Field(gt=0)
 
+class ImagesRequest(BaseModel):
+    images: List[str]  # Data URLs or base64 strings
+
 class SliceRequest(BaseModel):
     image: str
     panels: List[Panel]
@@ -375,8 +378,8 @@ async def synthesize(req: SynthesizeRequest):
     return result
 
 
-def sheet_background(rgba: np.ndarray) -> Optional[tuple]:
-    """None when the sheet already has transparency, else its median border colour."""
+def background_color(rgba: np.ndarray) -> Optional[tuple]:
+    """None when the image already has transparency, else its median border colour."""
     if (rgba[..., 3] < 128).mean() > 0.01:
         return None
     border = np.concatenate([rgba[0], rgba[-1], rgba[:, 0], rgba[:, -1]])[:, :3]
@@ -387,7 +390,7 @@ def detect_panels(img: Image.Image) -> List[dict]:
     """Find the frames on an irregular sprite sheet, as boxes in no particular order."""
     rgba = np.asarray(img.convert("RGBA"))
     height, width = rgba.shape[:2]
-    bg = sheet_background(rgba)
+    bg = background_color(rgba)
     if bg is None:
         foreground = rgba[..., 3] > 16
     else:
@@ -452,17 +455,17 @@ async def slice_sheet(req: SliceRequest):
         raise HTTPException(status_code=400, detail="No frames to slice.")
 
     sheet = base64_to_pil(req.image)
-    bg = sheet_background(np.asarray(sheet))
-    fill = (0, 0, 0, 0) if bg is None else (*bg, 255)
     crops = [sheet.crop((p.x, p.y, p.x + p.w, p.y + p.h)) for p in req.panels]
 
     # Every frame shares the largest crop's size; smaller crops sit bottom-centre so
-    # characters standing on the panel floor stay on the same line
+    # characters standing on the panel floor stay on the same line. The margin takes
+    # each crop's own edge colour, so a white panel stays one white frame.
     canvas_w = max(c.width for c in crops)
     canvas_h = max(c.height for c in crops)
     frames = []
     for i, crop in enumerate(crops):
-        canvas = Image.new("RGBA", (canvas_w, canvas_h), fill)
+        bg = background_color(np.asarray(crop))
+        canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0) if bg is None else (*bg, 255))
         canvas.paste(crop, ((canvas_w - crop.width) // 2, canvas_h - crop.height))
         frames.append({
             "index": i,
@@ -473,6 +476,25 @@ async def slice_sheet(req: SliceRequest):
         })
 
     return {"width": canvas_w, "height": canvas_h, "frames": frames}
+
+
+@app.post("/api/content-boxes")
+async def content_boxes(req: ImagesRequest):
+    """Where the character sits in each frame, plus the background to fill around it."""
+    result = []
+    for data in req.images:
+        img = base64_to_pil(data)
+        boxes = detect_panels(img)
+        if boxes:
+            x0 = min(b["x"] for b in boxes)
+            y0 = min(b["y"] for b in boxes)
+            x1 = max(b["x"] + b["w"] for b in boxes)
+            y1 = max(b["y"] + b["h"] for b in boxes)
+            box = {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
+        else:
+            box = {"x": 0, "y": 0, "w": img.width, "h": img.height}
+        result.append({"box": box, "background": background_color(np.asarray(img))})
+    return {"frames": result}
 
 # Serve static files for frontend UI
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

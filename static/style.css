@@ -352,6 +352,16 @@ button { cursor: pointer; }
 .slice-handle[data-handle="sw"] { bottom: -6px; left: -6px; cursor: nesw-resize; }
 .slice-handle[data-handle="se"] { bottom: -6px; right: -6px; cursor: nwse-resize; }
 
+/* Align view: the aligned frame with guides through the shared anchor point */
+#align-box { cursor: move; touch-action: none; }
+#align-canvas { display: block; }
+#align-box.is-pixelated #align-canvas { image-rendering: pixelated; }
+
+.align-guide { position: absolute; background: rgba(232, 163, 61, 0.7); pointer-events: none; }
+.align-guide-h { left: 0; right: 0; height: 1px; }
+.align-guide-v { top: 0; bottom: 0; width: 1px; }
+.align-content { position: absolute; border: 1px dashed rgba(236, 234, 230, 0.45); pointer-events: none; }
+
 /* Export preview */
 .export-preview {
   position: absolute;
@@ -735,7 +745,7 @@ input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
 
 .tl-frame:hover .tl-keep, .tl-keep:focus-visible { opacity: 1; }
 .tl-frame.is-skipped .tl-keep { opacity: 1; background: rgba(14, 15, 17, 0.85); border-color: var(--muted); color: transparent; }
-.app.mode-remove .tl-keep, .app.mode-export .tl-keep { display: none; }
+.app.mode-remove .tl-keep, .app.mode-align .tl-keep, .app.mode-export .tl-keep { display: none; }
 
 .tl-dot { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--chrome); }
 .app.mode-split .tl-dot { display: none; }

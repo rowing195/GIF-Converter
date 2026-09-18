@@ -27,6 +27,7 @@
         <button type="button" data-mode="slice">切割</button>
         <button type="button" data-mode="split">拆解</button>
         <button type="button" data-mode="remove">去背</button>
+        <button type="button" data-mode="align">對齊</button>
         <button type="button" data-mode="export">導出</button>
       </nav>
 
@@ -111,6 +112,29 @@
             <button type="button" data-zoom="fit">適合</button>
             <button type="button" data-zoom="1">1×</button>
             <button type="button" data-zoom="2">2×</button>
+          </div>
+        </section>
+
+        <!-- Aligned frame with its anchor guides: align mode -->
+        <section class="viewer" id="align-view" hidden>
+          <div class="viewer-scroll" id="align-scroll">
+            <div class="frame-box checker" id="align-box">
+              <canvas id="align-canvas"></canvas>
+              <div class="align-content" id="align-content"></div>
+              <div class="align-guide align-guide-h" id="align-guide-h"></div>
+              <div class="align-guide align-guide-v" id="align-guide-v"></div>
+            </div>
+          </div>
+          <div class="stage-chips" id="align-chips"></div>
+          <div class="segmented segmented-sm zoom-control" id="align-zoom">
+            <button type="button" data-zoom="fit">適合</button>
+            <button type="button" data-zoom="1">1×</button>
+            <button type="button" data-zoom="2">2×</button>
+            <button type="button" data-zoom="4">4×</button>
+          </div>
+          <div class="segmented segmented-sm view-toggle" id="align-onion">
+            <button type="button" data-onion="off">單幀</button>
+            <button type="button" data-onion="on">洋蔥皮</button>
           </div>
         </section>
 
@@ -205,6 +229,7 @@
           </div>
           <div class="panel-footer">
             <button type="button" class="btn btn-primary" id="btn-slice"></button>
+            <button type="button" class="btn btn-outline" id="btn-slice-align">切割後進行對齊校正</button>
             <p class="footer-note" id="slice-note" hidden></p>
           </div>
         </div>
@@ -335,6 +360,70 @@
           </div>
         </div>
 
+        <!-- Align -->
+        <div class="panel" data-panel="align" hidden>
+          <div class="panel-body">
+            <div class="section">
+              <label class="switch-row">
+                <span>導出時套用對齊</span>
+                <input type="checkbox" class="switch" id="align-enabled" checked>
+              </label>
+              <p class="hint" id="align-status"></p>
+            </div>
+            <fieldset class="settings" id="align-settings">
+              <div class="section">
+                <div class="section-label">對齊點</div>
+                <div class="segmented segmented-sm slice-method" id="align-anchor">
+                  <button type="button" data-anchor="bottom">底部</button>
+                  <button type="button" data-anchor="center">中心</button>
+                  <button type="button" data-anchor="top">頂部</button>
+                </div>
+                <p class="hint">每一幀角色的這個位置會對到同一點。站立角色用底部；睡覺、表情或半身角色用中心或頂部。</p>
+              </div>
+              <div class="section">
+                <div class="section-label">縮放校正</div>
+                <div class="switch-row">
+                  <span>參考幀</span>
+                  <span class="mono accent" id="align-ref"></span>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-align-set-ref">把目前這一幀設為參考幀</button>
+                <div class="switch-row">
+                  <span>比對角色的</span>
+                  <select class="select select-sm input-narrow" id="align-scale-by">
+                    <option value="height">高度</option>
+                    <option value="width">寬度</option>
+                  </select>
+                </div>
+                <div class="range-field">
+                  <div class="range-head"><span>最大縮放差異</span><output class="mono accent" id="align-max-val"></output></div>
+                  <input type="range" id="align-max" min="0" max="20" value="5">
+                  <p class="hint">每一幀依參考幀的角色大小縮放，但最多只差這麼多，避免蹲下、伸手的影格被誤放大。設 0% 就不縮放。</p>
+                </div>
+              </div>
+              <div class="section">
+                <div class="section-label">畫布</div>
+                <label class="switch-row">
+                  <span>四周留白 (px)</span>
+                  <input type="number" class="input mono input-narrow" id="align-padding" min="0" max="200" value="8">
+                </label>
+                <dl class="kv"><dt>輸出尺寸</dt><dd class="mono" id="align-size"></dd></dl>
+              </div>
+              <div class="section">
+                <div class="section-label" id="align-frame-label"></div>
+                <dl class="kv">
+                  <dt>縮放</dt><dd class="mono" id="align-frame-scale"></dd>
+                  <dt>手動位移</dt><dd class="mono" id="align-frame-offset"></dd>
+                </dl>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-align-reset-offset">重設這一幀的位移</button>
+                <p class="hint">在畫面上拖曳可以微調這一幀的位置。切到「洋蔥皮」會疊上前一幀，方便看有沒有跳動。</p>
+              </div>
+            </fieldset>
+          </div>
+          <div class="panel-footer">
+            <button type="button" class="btn btn-primary" id="btn-align-next"></button>
+          </div>
+        </div>
+
         <!-- Export -->
         <div class="panel" data-panel="export" hidden>
           <div class="panel-body">
@@ -440,5 +529,6 @@
   <input type="file" id="file-input" accept="image/gif, image/webp, image/png, image/jpeg, image/bmp" hidden>
   <script src="/static/script.js?v=workspace"></script>
   <script src="/static/slice.js?v=workspace"></script>
+  <script src="/static/align.js?v=workspace"></script>
 </body>
 </html>

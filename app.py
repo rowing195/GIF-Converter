@@ -136,6 +136,33 @@ def pil_to_base64(img: Image.Image, format: str = "PNG") -> str:
     return f"data:{mime};base64,{b64_str}"
 
 
+GIF_TRANSPARENT_INDEX = 255
+
+
+def to_gif_frames(images: List[Image.Image]) -> List[Image.Image]:
+    """Palette frames for GIF: 255 real colours each, with index 255 kept for see-through pixels.
+
+    Letting Pillow pick the palette and marking an index as transparent afterwards would
+    punch holes wherever that index's colour appears in an opaque image. The transparent
+    index also gets a colour no frame uses: Pillow crops each later frame to where it differs
+    from that colour, so a real colour there (black outlines) would be cut off the edges.
+    """
+    frames = [img.convert("RGB").quantize(colors=255) for img in images]
+    used = set()
+    for frame in frames:
+        palette = frame.getpalette()
+        used.update(zip(palette[0::3], palette[1::3], palette[2::3]))
+    unused = next(c for c in ((i >> 16, (i >> 8) & 255, i & 255) for i in range(256 ** 3)) if c not in used)
+
+    for img, frame in zip(images, frames):
+        palette = frame.getpalette()[:765]
+        palette += [0] * (765 - len(palette))
+        frame.putpalette(palette + list(unused))
+        see_through = img.getchannel("A").point(lambda a: 255 if a < 128 else 0)
+        frame.paste(GIF_TRANSPARENT_INDEX, mask=see_through)
+    return frames
+
+
 @app.post("/api/decompose-gif")
 async def decompose_gif(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(('.gif', '.webp', '.png', '.jpg', '.jpeg', '.bmp')):
@@ -281,8 +308,8 @@ async def synthesize(req: SynthesizeRequest):
         else:
             final_durations = durations
             
-        gif_frames = [img for img in pil_images]
-            
+        gif_frames = to_gif_frames(pil_images)
+
         gif_frames[0].save(
             buf,
             format="GIF",
@@ -291,7 +318,8 @@ async def synthesize(req: SynthesizeRequest):
             duration=final_durations,
             loop=req.gif_options.loop,
             disposal=2,
-            transparency=0
+            transparency=GIF_TRANSPARENT_INDEX,
+            optimize=False  # optimizing renumbers the palette and would move the transparent index
         )
         gif_b64 = f"data:image/gif;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
         result["gif"] = {
@@ -398,11 +426,13 @@ def detect_panels(img: Image.Image) -> List[dict]:
 
     labels, _ = ndimage.label(foreground, structure=np.ones((3, 3), dtype=bool))
     min_side = max(3, min(width, height) // 100)
-    boxes = [
-        [xs.start, ys.start, xs.stop, ys.stop]
-        for ys, xs in ndimage.find_objects(labels)
-        if xs.stop - xs.start >= min_side and ys.stop - ys.start >= min_side
-    ]
+    boxes, edge_cover = [], []
+    for label, (ys, xs) in enumerate(ndimage.find_objects(labels), start=1):
+        if xs.stop - xs.start >= min_side and ys.stop - ys.start >= min_side:
+            boxes.append([xs.start, ys.start, xs.stop, ys.stop])
+            # Share of the box outline this component touches: near 1 for a panel, low for a sprite
+            own = labels[ys, xs] == label
+            edge_cover.append(np.concatenate([own[0], own[-1], own[:, 0], own[:, -1]]).mean())
     if not boxes:
         return []
 
@@ -418,28 +448,61 @@ def detect_panels(img: Image.Image) -> List[dict]:
     def overlap(a, b):
         return max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(0, min(a[3], b[3]) - max(a[1], b[1]))
 
+    def split_apart(a, b):
+        # Two parts of one panel cut by an outline running wall to wall (a blanket edge):
+        # only a line's width apart, clearly closer than panels sit to each other, and as
+        # wide (or as tall) as each other
+        g = gap(a, b)
+        if g > 6 or (gutter is not None and g >= 0.5 * gutter):
+            return False
+        sides = (a[2] - a[0], a[3] - a[1], b[2] - b[0], b[3] - b[1])
+        across = min(a[2], b[2]) - max(a[0], b[0]) >= 0.9 * max(sides[0], sides[2])
+        along = min(a[3], b[3]) - max(a[1], b[1]) >= 0.9 * max(sides[1], sides[3])
+        return across or along
+
+    def mostly_overlap(a, b):
+        return overlap(a, b) >= 0.5 * min(area(a), area(b))
+
+    def merge_frames(should_merge):
+        merged = True
+        while merged:
+            merged = False
+            for i in range(len(frames)):
+                for j in range(i + 1, len(frames)):
+                    if should_merge(frames[i], frames[j]):
+                        frames[i] = union(frames[i], frames.pop(j))
+                        was_panel = panel.pop(j)
+                        panel[i] = panel[i] or was_panel
+                        merged = True
+                        break
+                if merged:
+                    break
+
     largest = max(area(b) for b in boxes)
-    frames = [b for b in boxes if area(b) >= 0.15 * largest]
-    # Small detached pieces (a sweat drop, a floating "Z") belong to the nearest frame;
-    # anything further away is noise
+    major = [i for i, b in enumerate(boxes) if area(b) >= 0.15 * largest]
+    frames = [boxes[i] for i in major]
+    # A frame that runs along most of its own outline is a panel; whatever sits outside it
+    # (a frame number, a caption) is not part of the frame
+    panel = [edge_cover[i] >= 0.6 for i in major]
+
+    # Fold boxes inside others (a character outlined within its panel) into them first,
+    # so the space between neighbouring frames can be measured
+    merge_frames(mostly_overlap)
+    nearest_gaps = [min(gap(a, b) for b in frames if b is not a) for a in frames] if len(frames) > 1 else []
+    nearest_gaps = [g for g in nearest_gaps if g > 0]
+    gutter = float(np.median(nearest_gaps)) if nearest_gaps else None
+
+    # Small detached pieces next to a sprite (a sweat drop, a floating "Z") belong to the
+    # nearest frame; anything further away is noise
     for piece in (b for b in boxes if area(b) < 0.15 * largest):
         nearest = min(range(len(frames)), key=lambda i: gap(frames[i], piece))
         f = frames[nearest]
-        if gap(f, piece) <= 0.25 * max(f[2] - f[0], f[3] - f[1]):
+        near = not panel[nearest] and gap(f, piece) <= 0.25 * max(f[2] - f[0], f[3] - f[1])
+        if near or split_apart(f, piece):
             frames[nearest] = union(f, piece)
 
-    # Merge boxes that mostly overlap, e.g. a frame that grew into its neighbour's piece
-    merged = True
-    while merged:
-        merged = False
-        for i in range(len(frames)):
-            for j in range(i + 1, len(frames)):
-                if overlap(frames[i], frames[j]) >= 0.5 * min(area(frames[i]), area(frames[j])):
-                    frames[i] = union(frames[i], frames.pop(j))
-                    merged = True
-                    break
-            if merged:
-                break
+    # Merge again: attached pieces can make boxes overlap, and halves of one panel join up
+    merge_frames(lambda a, b: mostly_overlap(a, b) or split_apart(a, b))
 
     return [{"x": b[0], "y": b[1], "w": b[2] - b[0], "h": b[3] - b[1]} for b in frames]
 
@@ -505,4 +568,4 @@ async def serve_index():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="127.0.0.1", port=8080, reload=True)
+    uvicorn.run("app:app", host="127.0.0.1", port=8008, reload=True)

@@ -80,7 +80,12 @@ const frameLabel = (f) => `#${pad2(f.index)}`;
 const sourceImage = (f) => f.removed || f.image;
 // The aligned render only counts while it was made from the frame's current image
 const alignedOutput = (f) => (state.align && state.align.enabled && f.aligned && f.aligned.from === sourceImage(f) ? f.aligned : null);
-const outputImage = (f) => (alignedOutput(f) ? f.aligned.image : sourceImage(f));
+// useRemoved: false picks the frame as it was before background removal (an export option)
+function outputImage(f, useRemoved = true) {
+  const aligned = alignedOutput(f);
+  if (!useRemoved && f.removed) return aligned ? aligned.original : f.image;
+  return aligned ? aligned.image : sourceImage(f);
+}
 const outputSize = (f) => alignedOutput(f) || f;
 const totalDuration = (frames) => frames.reduce((sum, f) => sum + f.duration, 0);
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -302,7 +307,7 @@ function renderExportAnimation() {
   // Animated preview (fits a 340px box)
   const frame = kept[state.exportPos % kept.length];
   const animImg = $('export-anim');
-  const src = outputImage(frame);
+  const src = outputImage(frame, animationUsesRemoved());
   if (animImg.getAttribute('src') !== src) animImg.src = src;
   const { width, height } = outputSize(frame);
   const scale = Math.min(340 / width, 340 / height);
@@ -338,9 +343,10 @@ function renderSheetPreview() {
   const grid = $('sheet-grid');
   grid.style.gridTemplateColumns = `repeat(${cols}, ${cell}px)`;
   grid.style.gridAutoRows = `${cellH}px`;
+  const useRemoved = exportUsesRemoved('spritesheet');
   grid.replaceChildren(...kept.map(f => {
     const im = document.createElement('img');
-    im.src = outputImage(f);
+    im.src = outputImage(f, useRemoved);
     im.alt = '';
     return im;
   }));
@@ -511,6 +517,17 @@ function selectedExportTypes() {
   return [...document.querySelectorAll('input[name="export-type"]:checked')].map(el => el.value);
 }
 
+const USE_REMOVED_SWITCH = { gif: 'gif-use-removed', webp: 'webp-use-removed', spritesheet: 'ss-use-removed' };
+const hasRemovedFrames = () => keptFrames().some(f => f.removed);
+// Whether this format exports the background-removed frames (each format picks its own)
+const exportUsesRemoved = (type) => $(USE_REMOVED_SWITCH[type]).checked;
+
+// The animated preview follows the GIF's choice, or the WebP's when only WebP is picked
+function animationUsesRemoved() {
+  const types = selectedExportTypes();
+  return exportUsesRemoved(types.includes('gif') || !types.includes('webp') ? 'gif' : 'webp');
+}
+
 function renderExportPanel() {
   const types = selectedExportTypes();
   document.querySelectorAll('.format-options').forEach(el => {
@@ -518,12 +535,18 @@ function renderExportPanel() {
   });
 
   const kept = keptFrames();
+  // Always shown so the choice is discoverable; it only does something once frames are removed
+  Object.values(USE_REMOVED_SWITCH).forEach(id => { $(id).disabled = !hasRemovedFrames(); });
+
   const processed = kept.filter(f => f.removed).length;
   const failed = kept.filter(f => f.failed && !f.removed).length;
   const unprocessed = kept.length - processed;
   const mixed = $('export-mixed-note');
-  mixed.hidden = !(processed > 0 && unprocessed > 0);
-  if (!mixed.hidden) {
+  if (processed === 0) {
+    mixed.hidden = false;
+    mixed.textContent = '還沒有去背的影格，所有格式都會使用原圖。要去背請先到「去背」模式，之後每種格式都可以各自選擇要不要用去背影格。';
+  } else {
+    mixed.hidden = !(unprocessed > 0 && types.some(exportUsesRemoved));
     mixed.textContent = failed
       ? `有 ${unprocessed} 幀沒有去背（其中 ${failed} 幀失敗），導出時會使用原圖。`
       : `有 ${unprocessed} 幀還沒去背，導出時會使用原圖。`;
@@ -850,6 +873,7 @@ function initKeyboard() {
       }
       return;
     }
+    if (state.mode === 'align' && handleAlignKey(e, target)) return;
     if (state.file.isStatic) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
@@ -961,8 +985,11 @@ function createFrames(list) {
       box: null,           // align mode: content box and background of the image in boxFrom
       background: null,
       boxFrom: '',
-      dx: 0,               // align mode: hand-dragged offset, in output pixels
+      imageBackground: undefined, // align mode: background of the image before removal, fetched when needed
+      dx: 0,               // align mode: hand-made offset, in output pixels
       dy: 0,
+      zoom: 1,             // align mode: hand-made scale, on top of the automatic one
+      flip: false,         // align mode: mirror horizontally
       aligned: null,       // align mode: { image, width, height, from }
       el: null
     };
@@ -1223,6 +1250,14 @@ function initExportPanel() {
     });
   });
 
+  Object.values(USE_REMOVED_SWITCH).forEach(id => {
+    $(id).addEventListener('change', () => {
+      state.exportResult = null;
+      renderInspector();
+      renderExportPreview();
+    });
+  });
+
   ['ss-cols', 'ss-padding'].forEach(id => {
     $(id).addEventListener('input', () => {
       if (id === 'ss-cols') state.ssColsTouched = true;
@@ -1242,9 +1277,7 @@ async function runExport() {
   state.exportResult = null;
   renderExportPanel();
 
-  const payload = {
-    frames: kept.map(f => ({ index: f.index, duration: f.duration, image: outputImage(f) })),
-    export_types: types,
+  const options = {
     gif_options: {
       fps_override: parseFloat($('gif-fps').value) || null,
       loop: parseInt($('gif-loop').value) || 0
@@ -1262,9 +1295,19 @@ async function runExport() {
   };
 
   try {
-    const res = await postJson('/api/synthesize', payload);
-    if (!res.ok) throw new Error((await requestError(res, '導出失敗')).message);
-    const data = await res.json();
+    // Formats using background-removed frames and formats using the originals go in separate requests
+    const data = {};
+    for (const useRemoved of [true, false]) {
+      const groupTypes = types.filter(t => exportUsesRemoved(t) === useRemoved);
+      if (!groupTypes.length) continue;
+      const res = await postJson('/api/synthesize', {
+        ...options,
+        export_types: groupTypes,
+        frames: kept.map(f => ({ index: f.index, duration: f.duration, image: outputImage(f, useRemoved) }))
+      });
+      if (!res.ok) throw new Error((await requestError(res, '導出失敗')).message);
+      Object.assign(data, await res.json());
+    }
 
     const base = state.file.baseName;
     const downloads = [];

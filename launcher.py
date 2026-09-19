@@ -32,7 +32,7 @@ def seed_bundled_model():
     print(f"[GIF Converter] 模型已安裝至 {target}")
 
 
-def find_free_port(preferred=8080, attempts=20):
+def find_free_port(preferred=8008, attempts=20):
     for port in range(preferred, preferred + attempts):
         with socket.socket() as sock:
             try:

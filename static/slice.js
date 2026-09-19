@@ -43,6 +43,10 @@ function groupRows(panels) {
 
 const sortPanels = (panels) => groupRows(panels).flat();
 
+// A box remembers where it stood when adjustments were last shared, so one box's hand
+// adjustment since then can be repeated on the others
+const withOrigin = (p) => ({ x: p.x, y: p.y, w: p.w, h: p.h, origin: { x: p.x, y: p.y, w: p.w, h: p.h } });
+
 function gridPanels({ width, height, rows, cols }) {
   const panels = [];
   for (let r = 0; r < rows; r++) {
@@ -75,7 +79,7 @@ function enterSlice() {
     height: frame.height,
     method: 'auto',
     detected,
-    panels: detected.map(p => ({ ...p })),
+    panels: detected.map(withOrigin),
     rows: Math.max(1, rows.length),
     cols: Math.max(1, ...rows.map(r => r.length)),
     selected: null,
@@ -165,6 +169,17 @@ function renderSlicePanel() {
     $('slice-sel-no').textContent = `#${pad2(sheet.panels.indexOf(selected))}`;
     $('slice-sel-pos').textContent = `${selected.x}, ${selected.y}`;
     $('slice-sel-size').textContent = `${selected.w} × ${selected.h}`;
+
+    const shift = edgeShift(selected);
+    const moved = Object.entries({ 上: -shift.top, 下: shift.bottom, 左: -shift.left, 右: shift.right })
+      .filter(([, v]) => v)
+      .map(([edge, v]) => `${edge}邊${v > 0 ? '外擴' : '內縮'} ${Math.abs(v)}`);
+    const others = count - 1;
+    $('btn-slice-apply-all').textContent = `把這格的調整套用到其他 ${others} 格`;
+    $('btn-slice-apply-all').disabled = !moved.length || others === 0;
+    $('slice-shift-hint').textContent = moved.length
+      ? `這格剛調整了${moved.join('、')} px。套用後其他格會從目前的位置調整同樣的距離，已經手動修好的格子也會保留修正。`
+      : '調整這格的邊界後，可以把同樣的調整套用到其他格，例如一次裁掉每格底下的編號。';
   }
 
   const resliced = !state.file.isStatic;
@@ -186,8 +201,35 @@ function renderSlicePanel() {
 function setSliceMethod(method) {
   const sheet = state.sheet;
   sheet.method = method;
-  sheet.panels = method === 'grid' ? gridPanels(sheet) : sheet.detected.map(p => ({ ...p }));
+  sheet.panels = (method === 'grid' ? gridPanels(sheet) : sheet.detected).map(withOrigin);
   sheet.selected = null;
+  renderStage();
+  renderInspector();
+}
+
+// How far each edge of a box has been moved by hand since its origin
+function edgeShift(p) {
+  const o = p.origin;
+  return { left: p.x - o.x, top: p.y - o.y, right: p.x + p.w - o.x - o.w, bottom: p.y + p.h - o.y - o.h };
+}
+
+// Repeat the selected box's edge adjustment on every other box, e.g. trim the same
+// caption strip off the bottom of each frame even when frames differ in size. Each box
+// moves from where it is now, so boxes already fixed by hand keep their fix.
+function applyShiftToOthers() {
+  const sheet = state.sheet;
+  const shift = edgeShift(sheet.selected);
+  sheet.panels.forEach(p => {
+    if (p === sheet.selected) return;
+    const x0 = clamp(p.x + shift.left, 0, sheet.width);
+    const y0 = clamp(p.y + shift.top, 0, sheet.height);
+    const x1 = clamp(p.x + p.w + shift.right, 0, sheet.width);
+    const y1 = clamp(p.y + p.h + shift.bottom, 0, sheet.height);
+    if (x1 - x0 >= MIN_PANEL_SIZE && y1 - y0 >= MIN_PANEL_SIZE) Object.assign(p, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  });
+  // The adjustment has been shared; every box counts its next adjustment from here
+  sheet.panels.forEach(p => { p.origin = { x: p.x, y: p.y, w: p.w, h: p.h }; });
+  sheet.panels = sortPanels(sheet.panels);
   renderStage();
   renderInspector();
 }
@@ -274,8 +316,8 @@ function initSliceEditing() {
     if (drag.kind === 'draw') {
       sheet.draft = null;
       if (!tooSmall) {
-        sheet.panels.push(p);
-        sheet.selected = p;
+        sheet.selected = withOrigin(p);
+        sheet.panels.push(sheet.selected);
       }
     } else if (tooSmall) {
       Object.assign(p, drag.orig);
@@ -353,6 +395,7 @@ function initSlicePanel() {
   });
 
   $('btn-slice-delete').addEventListener('click', deleteSelectedPanel);
+  $('btn-slice-apply-all').addEventListener('click', applyShiftToOthers);
   $('btn-slice').addEventListener('click', () => runSlice('export'));
   $('btn-slice-align').addEventListener('click', () => runSlice('align'));
   initSliceEditing();

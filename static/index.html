@@ -214,6 +214,8 @@
                   <dt>位置</dt><dd class="mono" id="slice-sel-pos"></dd>
                   <dt>尺寸</dt><dd class="mono" id="slice-sel-size"></dd>
                 </dl>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-slice-apply-all"></button>
+                <p class="hint" id="slice-shift-hint"></p>
                 <button type="button" class="btn btn-outline btn-sm" id="btn-slice-delete">刪除這個框</button>
               </div>
               <p class="hint">拖曳框可移動，拖曳角落可調整大小，在空白處拖曳可新增框，選取後按 Delete 刪除。編號依位置由上而下、由左而右排列。</p>
@@ -410,16 +412,38 @@
               </div>
               <div class="section">
                 <div class="section-label" id="align-frame-label"></div>
-                <dl class="kv">
-                  <dt>縮放</dt><dd class="mono" id="align-frame-scale"></dd>
-                  <dt>手動位移</dt><dd class="mono" id="align-frame-offset"></dd>
-                </dl>
-                <button type="button" class="btn btn-outline btn-sm" id="btn-align-reset-offset">重設這一幀的位移</button>
-                <p class="hint">在畫面上拖曳可以微調這一幀的位置。切到「洋蔥皮」會疊上前一幀，方便看有沒有跳動。</p>
+                <dl class="kv"><dt>自動縮放</dt><dd class="mono" id="align-frame-scale"></dd></dl>
+                <div class="align-xy">
+                  <span class="muted">X</span>
+                  <input type="number" class="input mono" id="align-dx" step="1">
+                  <span class="muted">Y</span>
+                  <input type="number" class="input mono" id="align-dy" step="1">
+                </div>
+                <div class="range-field">
+                  <div class="range-head"><span>手動縮放</span><output class="mono accent" id="align-zoom-val"></output></div>
+                  <input type="range" id="align-frame-zoom" min="50" max="150" step="1">
+                </div>
+                <label class="switch-row">
+                  <span>水平翻轉</span>
+                  <input type="checkbox" class="switch" id="align-flip">
+                </label>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-align-reset-frame">重設這一幀</button>
+                <p class="hint">在畫面上拖曳也可以移動這一幀。切到「洋蔥皮」會疊上前一幀，方便看有沒有跳動。</p>
+                <p class="hint">快捷鍵：WASD 移動（按住 Shift 一次 10 px）、+ / − 縮放、F 翻轉、空白鍵播放、← → 切換影格、Ctrl+Z 復原、Ctrl+Shift+Z 重做。</p>
               </div>
             </fieldset>
           </div>
           <div class="panel-footer">
+            <div class="btn-grid-2">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-align-undo" title="Ctrl+Z">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+                復原
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-align-redo" title="Ctrl+Shift+Z">
+                重做
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg>
+              </button>
+            </div>
             <button type="button" class="btn btn-primary" id="btn-align-next"></button>
           </div>
         </div>
@@ -444,6 +468,8 @@
                   <option value="1">播放 1 次</option>
                   <option value="5">播放 5 次</option>
                 </select>
+                <span class="muted">去背影格</span>
+                <input type="checkbox" class="switch switch-end" id="gif-use-removed" checked>
                 <p class="hint format-hint">GIF 的透明只有全透或不透，半透明邊緣會變成鋸齒。</p>
               </div>
             </div>
@@ -465,6 +491,8 @@
                 </select>
                 <span class="muted">無損壓縮</span>
                 <input type="checkbox" class="switch switch-end" id="webp-lossless" checked>
+                <span class="muted">去背影格</span>
+                <input type="checkbox" class="switch switch-end" id="webp-use-removed" checked>
               </div>
             </div>
 
@@ -481,6 +509,8 @@
                 <input type="number" class="input mono" id="ss-padding" min="0" max="50" value="2">
                 <span class="muted">透明背景</span>
                 <input type="checkbox" class="switch switch-end" id="ss-transparent" checked>
+                <span class="muted">去背影格</span>
+                <input type="checkbox" class="switch switch-end" id="ss-use-removed" checked>
               </div>
             </div>
 

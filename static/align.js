@@ -38,10 +38,11 @@ function refFrame() {
 function placement(frame, ref) {
   const { scaleBy, maxChange, anchor } = state.align;
   const dim = scaleBy === 'width' ? 'w' : 'h';
-  const s = clamp(ref.box[dim] / frame.box[dim], 1 - maxChange / 100, 1 + maxChange / 100);
+  const auto = clamp(ref.box[dim] / frame.box[dim], 1 - maxChange / 100, 1 + maxChange / 100);
+  const s = auto * frame.zoom;
   const b = frame.box;
   const a = ANCHORS[anchor](b);
-  return { s, left: (b.x - a.x) * s + frame.dx, top: (b.y - a.y) * s + frame.dy, w: b.w * s, h: b.h * s };
+  return { auto, s, left: (b.x - a.x) * s + frame.dx, top: (b.y - a.y) * s + frame.dy, w: b.w * s, h: b.h * s };
 }
 
 // One canvas for every frame (kept or not, so toggling frames never resizes the output)
@@ -72,23 +73,29 @@ function frameRect(frame, layout) {
   };
 }
 
-// Opaque frames get the reference frame's background around the character
-function paintBackground(ctx, layout) {
-  const bg = refFrame().background;
+// Opaque frames get a background colour around the character (null keeps it transparent)
+function paintBackground(ctx, layout, bg = refFrame().background) {
   if (!bg) return;
   ctx.fillStyle = `rgb(${bg.join(',')})`;
   ctx.fillRect(0, 0, layout.width, layout.height);
 }
 
-function paintFrame(ctx, frame, layout, alpha = 1) {
-  const img = loadedImages.get(sourceImage(frame));
+// src: which image of the frame to draw; the placement is the same for all of them
+function paintFrame(ctx, frame, layout, alpha = 1, src = sourceImage(frame)) {
+  const img = loadedImages.get(src);
   if (!img) return;
   const b = frame.box;
   const r = frameRect(frame, layout);
+  ctx.save();
   ctx.globalAlpha = alpha;
   ctx.imageSmoothingQuality = 'high';
+  if (frame.flip) {
+    // Mirror within the frame's own box; every anchor sits on the box's centre line, so it stays put
+    ctx.translate(r.x * 2 + r.w, 0);
+    ctx.scale(-1, 1);
+  }
   ctx.drawImage(img, b.x, b.y, b.w, b.h, r.x, r.y, r.w, r.h);
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 // Render every frame at its aligned position; export and the timeline use these images
@@ -99,11 +106,16 @@ function bakeAligned() {
   canvas.width = layout.width;
   canvas.height = layout.height;
   const ctx = canvas.getContext('2d');
-  state.frames.forEach(frame => {
+  const render = (frame, src, bg) => {
     ctx.clearRect(0, 0, layout.width, layout.height);
-    paintBackground(ctx, layout);
-    paintFrame(ctx, frame, layout);
-    frame.aligned = { image: canvas.toDataURL('image/png'), width: layout.width, height: layout.height, from: sourceImage(frame) };
+    paintBackground(ctx, layout, bg);
+    paintFrame(ctx, frame, layout, 1, src);
+    return canvas.toDataURL('image/png');
+  };
+  state.frames.forEach(frame => {
+    frame.aligned = { image: render(frame, sourceImage(frame), refFrame().background), width: layout.width, height: layout.height, from: sourceImage(frame) };
+    // Exports can ask for the frame without background removal, aligned the same way
+    if (frame.removed) frame.aligned.original = render(frame, frame.image, frame.imageBackground);
   });
 }
 
@@ -113,6 +125,60 @@ function scheduleBake() {
     bakeAligned();
     updateTimeline();
   }, 150);
+}
+
+// ---------- Undo / redo ----------
+
+// Hand edits and settings, but not the on/off switch; frames are stored by position, so the
+// history only lives as long as the current frame list (re-slicing starts a fresh one)
+const history = { frames: null, undo: [], redo: [], committed: null };
+
+function alignSnapshot() {
+  const { scaleBy, maxChange, anchor, padding } = state.align;
+  return JSON.stringify({
+    settings: { scaleBy, maxChange, anchor, padding, ref: state.frames.indexOf(refFrame()) },
+    frames: state.frames.map(f => [f.dx, f.dy, f.zoom, f.flip])
+  });
+}
+
+function syncHistory() {
+  if (history.frames === state.frames) return;
+  Object.assign(history, { frames: state.frames, undo: [], redo: [], committed: alignSnapshot() });
+}
+
+// Call once an edit is finished (drag released, slider let go, key pressed)
+function commitAlign() {
+  syncHistory();
+  const now = alignSnapshot();
+  if (now === history.committed) return;
+  history.undo.push(history.committed);
+  history.redo = [];
+  history.committed = now;
+}
+
+function restoreAlign(snapshot) {
+  const { settings, frames } = JSON.parse(snapshot);
+  const { ref, ...rest } = settings;
+  Object.assign(state.align, rest, { ref: state.frames[ref] });
+  state.frames.forEach((f, i) => { [f.dx, f.dy, f.zoom, f.flip] = frames[i]; });
+  history.committed = snapshot;
+  renderStage();
+  renderInspector();
+  scheduleBake();
+}
+
+function undoAlign() {
+  commitAlign();
+  if (!history.undo.length) return;
+  history.redo.push(history.committed);
+  restoreAlign(history.undo.pop());
+}
+
+function redoAlign() {
+  commitAlign();
+  if (!history.redo.length) return;
+  history.undo.push(history.committed);
+  restoreAlign(history.redo.pop());
 }
 
 // Find the content box of every frame whose image changed, then re-render them all
@@ -125,18 +191,22 @@ async function refreshAlignment() {
 
   try {
     const stale = state.frames.filter(f => f.boxFrom !== sourceImage(f));
-    if (stale.length) {
+    // Background-removed frames also need their original background, for exports without removal
+    const noOriginalBg = state.frames.filter(f => f.removed && f.imageBackground === undefined);
+    if (stale.length || noOriginalBg.length) {
       const images = stale.map(sourceImage);
-      const res = await postJson('/api/content-boxes', { images });
+      const res = await postJson('/api/content-boxes', { images: [...images, ...noOriginalBg.map(f => f.image)] });
       if (!res.ok) throw new Error((await requestError(res, '找不到角色位置')).message);
       const { frames } = await res.json();
       stale.forEach((f, i) => Object.assign(f, { box: frames[i].box, background: frames[i].background, boxFrom: images[i] }));
+      noOriginalBg.forEach((f, i) => { f.imageBackground = frames[stale.length + i].background; });
     }
 
-    const sources = new Set(state.frames.map(sourceImage));
+    const sources = new Set(state.frames.flatMap(f => (f.removed ? [f.removed, f.image] : [f.image])));
     for (const src of loadedImages.keys()) if (!sources.has(src)) loadedImages.delete(src);
     await Promise.all([...sources].map(loadImage));
     bakeAligned();
+    syncHistory();
   } catch (err) {
     align.error = err.message;
   } finally {
@@ -239,24 +309,82 @@ function renderAlignPanel() {
     $('align-ref').textContent = frameLabel(ref);
     $('btn-align-set-ref').disabled = frame === ref;
     $('align-size').textContent = `${layout.width} × ${layout.height}`;
-    $('align-frame-scale').textContent = `× ${p.s.toFixed(3)}`;
-    $('align-frame-offset').textContent = `${frame.dx}, ${frame.dy}`;
-    $('btn-align-reset-offset').disabled = !frame.dx && !frame.dy;
+    $('align-frame-scale').textContent = `× ${p.auto.toFixed(3)}`;
+    setFieldValue($('align-dx'), frame.dx);
+    setFieldValue($('align-dy'), frame.dy);
+    setFieldValue($('align-padding'), align.padding);
+    $('align-frame-zoom').value = Math.round(frame.zoom * 100);
+    $('align-zoom-val').textContent = `${Math.round(frame.zoom * 100)}%`;
+    $('align-flip').checked = frame.flip;
+    $('btn-align-reset-frame').disabled = !frame.dx && !frame.dy && frame.zoom === 1 && !frame.flip;
   }
+
+  syncHistory();
+  $('btn-align-undo').disabled = !ready || !history.undo.length;
+  $('btn-align-redo').disabled = !ready || !history.redo.length;
 
   const next = $('btn-align-next');
   next.disabled = keptFrames().length === 0;
   next.innerHTML = `下一步：導出 ${ICONS.arrow}`;
 }
 
+// Leave a field alone while it is being typed in, so re-rendering never fights the cursor
+function setFieldValue(el, value) {
+  if (document.activeElement !== el) el.value = value;
+}
+
 // ---------- Editing ----------
 
-function updateAlignSettings(changes) {
+// commit: the edit is finished and becomes an undo step; live slider and typing updates pass false
+function updateAlignSettings(changes, commit = true) {
   Object.assign(state.align, changes);
+  if (commit) commitAlign();
   renderStage();
   renderInspector();
   if (state.align.enabled) scheduleBake();
   else updateTimeline();
+}
+
+function editFrame(changes, commit = true) {
+  Object.assign(currentFrame(), changes);
+  updateAlignSettings({}, commit);
+}
+
+// Shortcuts that only make sense in align mode; returns true when the key was used
+function handleAlignKey(e, target) {
+  if (!alignReady() || !state.align.enabled) return false;
+  const key = e.key.toLowerCase();
+
+  if (e.ctrlKey || e.metaKey) {
+    if (key === 'z' || key === 'y') {
+      e.preventDefault();
+      if (key === 'y' || e.shiftKey) redoAlign(); else undoAlign();
+      return true;
+    }
+    return false;
+  }
+  if (e.altKey) return false;
+
+  const frame = currentFrame();
+  const step = e.shiftKey ? 10 : 1;
+  const moves = { w: [0, -1], a: [-1, 0], s: [0, 1], d: [1, 0] };
+  if (moves[key]) {
+    stopPlayback();
+    editFrame({ dx: frame.dx + moves[key][0] * step, dy: frame.dy + moves[key][1] * step });
+  } else if (key === '+' || key === '=' || key === '-' || key === '_') {
+    stopPlayback();
+    const delta = key === '+' || key === '=' ? 0.01 : -0.01;
+    editFrame({ zoom: clamp(Math.round((frame.zoom + delta) * 100) / 100, 0.5, 1.5) });
+  } else if (key === 'f') {
+    stopPlayback();
+    editFrame({ flip: !frame.flip });
+  } else if (key === ' ' && !(target && target.closest('button'))) {
+    if (state.playing) stopPlayback(); else startPlayback();
+  } else {
+    return false;
+  }
+  e.preventDefault();
+  return true;
 }
 
 function initAlignDrag() {
@@ -287,6 +415,7 @@ function initAlignDrag() {
     if (!drag) return;
     drag = null;
     dragLayout = null;
+    commitAlign();
     bakeAligned();
     renderAll();
   };
@@ -302,18 +431,29 @@ function initAlignPanel() {
     if (btn) updateAlignSettings({ anchor: btn.dataset.anchor });
   });
   $('align-scale-by').addEventListener('change', (e) => updateAlignSettings({ scaleBy: e.target.value }));
-  $('align-max').addEventListener('input', (e) => updateAlignSettings({ maxChange: Number(e.target.value) }));
+  $('align-max').addEventListener('input', (e) => updateAlignSettings({ maxChange: Number(e.target.value) }, false));
   $('align-padding').addEventListener('input', (e) => {
-    updateAlignSettings({ padding: clamp(parseInt(e.target.value) || 0, 0, 200) });
+    updateAlignSettings({ padding: clamp(parseInt(e.target.value) || 0, 0, 200) }, false);
+  });
+  $('btn-align-set-ref').addEventListener('click', () => updateAlignSettings({ ref: currentFrame() }));
+
+  // Per-frame controls
+  ['align-dx', 'align-dy'].forEach(id => {
+    $(id).addEventListener('input', (e) => {
+      editFrame({ [id === 'align-dx' ? 'dx' : 'dy']: parseInt(e.target.value) || 0 }, false);
+    });
+  });
+  $('align-frame-zoom').addEventListener('input', (e) => editFrame({ zoom: Number(e.target.value) / 100 }, false));
+  $('align-flip').addEventListener('change', (e) => editFrame({ flip: e.target.checked }));
+  $('btn-align-reset-frame').addEventListener('click', () => editFrame({ dx: 0, dy: 0, zoom: 1, flip: false }));
+
+  // Sliders and number fields update live while in use and become one undo step when let go
+  ['align-max', 'align-padding', 'align-dx', 'align-dy', 'align-frame-zoom'].forEach(id => {
+    $(id).addEventListener('change', () => updateAlignSettings({}));
   });
 
-  $('btn-align-set-ref').addEventListener('click', () => updateAlignSettings({ ref: currentFrame() }));
-  $('btn-align-reset-offset').addEventListener('click', () => {
-    const frame = currentFrame();
-    frame.dx = 0;
-    frame.dy = 0;
-    updateAlignSettings({});
-  });
+  $('btn-align-undo').addEventListener('click', undoAlign);
+  $('btn-align-redo').addEventListener('click', redoAlign);
 
   $('align-zoom').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-zoom]');

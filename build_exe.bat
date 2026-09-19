@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 > nul
 title GIF Converter - Build EXE
 cd /d "%~dp0"
 

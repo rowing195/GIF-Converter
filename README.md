@@ -7,6 +7,7 @@
 <em>把任何動圖變成乾淨透明的動畫素材</em>
 
 <!-- BADGES -->
+<img src="https://img.shields.io/github/license/rowing195/GIF-Converter?style=flat&logo=opensourceinitiative&logoColor=white&color=0080ff" alt="license">
 <img src="https://img.shields.io/github/last-commit/rowing195/GIF-Converter?style=flat&logo=git&logoColor=white&color=0080ff" alt="last-commit">
 <img src="https://img.shields.io/github/languages/top/rowing195/GIF-Converter?style=flat&color=0080ff" alt="repo-top-language">
 <img src="https://img.shields.io/github/languages/count/rowing195/GIF-Converter?style=flat&color=0080ff" alt="repo-language-count">
@@ -159,6 +160,7 @@ GIF Converter 是在本機執行的動畫素材工具：把 GIF、動態 WebP �
 └── GIF-Converter/
     ├── .gitattributes
     ├── .gitignore
+    ├── LICENSE
     ├── README.md
     ├── app.py
     ├── build_exe.bat
@@ -419,7 +421,7 @@ Build GIF Converter from the source and install dependencies:
 
 ## License
 
-GIF Converter 以 MIT License 釋出，可自由使用。
+GIF Converter is protected under the [MIT](LICENSE) License. 可自由使用、修改與散布，詳見 [LICENSE](LICENSE)。
 
 ---
 

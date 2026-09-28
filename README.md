@@ -283,7 +283,7 @@ GIF Converter 是在本機執行的動畫素材工具：把 GIF、動態 WebP �
 
 This project requires the following dependencies:
 
-- **Programming Language:** Python 3.10+（已在 Python 3.13 測試）
+- **Programming Language:** Python 3.12+（`scipy==1.18.0` 需要 3.12 以上；已在 Python 3.13 測試）
 - **Package Manager:** pip
 
 ### Installation
